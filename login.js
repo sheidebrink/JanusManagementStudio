@@ -1,5 +1,35 @@
 const { ipcRenderer } = require('electron');
 
+// Load saved credentials on page load
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const credentials = await ipcRenderer.invoke('load-credentials');
+    if (credentials) {
+      document.getElementById('server').value = credentials.server;
+      document.getElementById('database').value = credentials.database;
+      document.getElementById('username').value = credentials.username;
+      document.getElementById('password').value = credentials.password;
+      document.getElementById('saveCredentials').checked = true;
+    }
+  } catch (error) {
+    console.error('Failed to load saved credentials:', error);
+  }
+});
+
+async function clearSavedCredentials() {
+  try {
+    await ipcRenderer.invoke('clear-credentials');
+    document.getElementById('server').value = 'GEMINI';
+    document.getElementById('database').value = 'JanusPlatformQA';
+    document.getElementById('username').value = 'IrisPlatformCreate';
+    document.getElementById('password').value = '';
+    document.getElementById('saveCredentials').checked = false;
+    alert('Saved credentials cleared');
+  } catch (error) {
+    alert('Failed to clear credentials: ' + error.message);
+  }
+}
+
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   
@@ -15,7 +45,8 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     database: document.getElementById('database').value,
     username: document.getElementById('username').value,
     password: document.getElementById('password').value,
-    encrypt: false
+    encrypt: false,
+    saveCredentials: document.getElementById('saveCredentials').checked
   };
   
   try {

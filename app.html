@@ -122,6 +122,12 @@
         <div onclick="showTenantsPage()">Tenants</div>
       </div>
     </div>
+    <div class="menu-item" onclick="toggleMenu('manageMenu')">
+      Manage
+      <div id="manageMenu" class="dropdown">
+        <div onclick="showWorkflowsPage()">Workflows</div>
+      </div>
+    </div>
   </div>
   
   <div class="header">
@@ -140,6 +146,7 @@
       <p>Use the menu above to navigate to different sections:</p>
       <ul>
         <li><strong>System → Tenants</strong> - View and manage tenant information</li>
+        <li><strong>Manage → Workflows</strong> - View workflows for selected tenant</li>
       </ul>
     </div>
   </div>
@@ -154,6 +161,34 @@
     <div class="results">
       <h3>Tenants List</h3>
       <div id="tenantsResults">Loading tenants...</div>
+    </div>
+  </div>
+
+  <div id="workflowsPage" class="page">
+    <div class="query-section">
+      <h3>Manage - Workflows</h3>
+      <p id="workflowTenantInfo">No tenant selected. Please select a tenant first.</p>
+      <button onclick="loadWorkflows()" id="refreshWorkflowsBtn" disabled>Refresh Workflows</button>
+    </div>
+    
+    <div class="results">
+      <h3>Workflows List</h3>
+      <div id="workflowsResults">Select a tenant to view workflows.</div>
+    </div>
+  </div>
+
+  <div id="workflowOpenPage" class="page">
+    <div class="query-section">
+      <h3 id="workflowTitle">Workflow Details</h3>
+      <button onclick="showWorkflowsPage()">← Back to Workflows</button>
+    </div>
+    
+    <div class="results">
+      <h4>Workflow Information</h4>
+      <div id="workflowDetails">Loading workflow details...</div>
+      
+      <h4>Workflow Activities</h4>
+      <div id="workflowActivities">Loading activities...</div>
     </div>
   </div>
 
@@ -324,6 +359,163 @@
         }
       } catch (error) {
         resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+    
+    function showWorkflowsPage() {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('workflowsPage').classList.add('active');
+      document.querySelectorAll('.dropdown').forEach(d => d.style.display = 'none');
+      updateWorkflowsContext();
+    }
+    
+    async function updateWorkflowsContext() {
+      try {
+        const context = await ipcRenderer.invoke('get-context');
+        const tenantInfo = document.getElementById('workflowTenantInfo');
+        const refreshBtn = document.getElementById('refreshWorkflowsBtn');
+        
+        if (context.tenant) {
+          tenantInfo.textContent = `Showing workflows for: ${context.tenant.name} (ID: ${context.tenant.id})`;
+          refreshBtn.disabled = false;
+          loadWorkflows();
+        } else {
+          tenantInfo.textContent = 'No tenant selected. Please select a tenant first.';
+          refreshBtn.disabled = true;
+          document.getElementById('workflowsResults').innerHTML = 'Select a tenant to view workflows.';
+        }
+      } catch (error) {
+        console.error('Failed to load context:', error);
+      }
+    }
+    
+    async function loadWorkflows() {
+      const resultsDiv = document.getElementById('workflowsResults');
+      
+      try {
+        const context = await ipcRenderer.invoke('get-context');
+        if (!context.tenant) {
+          resultsDiv.innerHTML = '<div class="error">No tenant selected</div>';
+          return;
+        }
+        
+        resultsDiv.innerHTML = 'Loading workflows...';
+        
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT Id, Name, 
+                  CASE WHEN SyncEnabled = 1 THEN 'Yes' ELSE 'No' END as SyncEnabled,
+                  CASE WHEN IsRouter = 1 THEN 'Yes' ELSE 'No' END as IsRouter,
+                  CASE WHEN IsRoutable = 1 THEN 'Yes' ELSE 'No' END as IsRoutable,
+                  CASE WHEN IsReRouteAllowed = 1 THEN 'Yes' ELSE 'No' END as IsReRouteAllowed,
+                  EmailUserName, EmailMailboxOwner,
+                  CreatedById, CreatedDate, UpdatedById, UpdatedDate
+           FROM Workflows 
+           WHERE TenantId = ${context.tenant.id} AND IsDeleted = 0
+           ORDER BY Name`);
+        
+        if (result.success) {
+          if (result.data && result.data.length > 0) {
+            const table = createWorkflowsTable(result.data);
+            resultsDiv.innerHTML = `<p>${result.data.length} workflows found for tenant ${context.tenant.name}.</p>${table}`;
+          } else {
+            resultsDiv.innerHTML = `<p>No workflows found for tenant ${context.tenant.name}.</p>`;
+          }
+        } else {
+          resultsDiv.innerHTML = `<div class="error">Failed to load workflows: ${result.error}</div>`;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+    
+    function createWorkflowsTable(data) {
+      if (!data || data.length === 0) return '';
+      
+      const headers = Object.keys(data[0]);
+      let html = '<table><thead><tr><th>Action</th>';
+      
+      headers.forEach(header => {
+        html += `<th>${header}</th>`;
+      });
+      html += '</tr></thead><tbody>';
+      
+      data.forEach(row => {
+        html += '<tr>';
+        html += `<td><button onclick="openWorkflow(${row.Id}, '${row.Name}')">Open</button></td>`;
+        headers.forEach(header => {
+          const value = row[header] !== null ? row[header] : 'NULL';
+          html += `<td>${value}</td>`;
+        });
+        html += '</tr>';
+      });
+      
+      html += '</tbody></table>';
+      return html;
+    }
+    
+    async function openWorkflow(workflowId, workflowName) {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('workflowOpenPage').classList.add('active');
+      document.getElementById('workflowTitle').textContent = `Workflow: ${workflowName}`;
+      
+      await loadWorkflowDetails(workflowId);
+      await loadWorkflowActivities(workflowId);
+    }
+    
+    async function loadWorkflowDetails(workflowId) {
+      const detailsDiv = document.getElementById('workflowDetails');
+      detailsDiv.innerHTML = 'Loading workflow details...';
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT Id, TenantId, Name, EmailSignature, EmailUserName, EmailMailboxOwner,
+                  CASE WHEN SyncEnabled = 1 THEN 'Yes' ELSE 'No' END as SyncEnabled,
+                  CASE WHEN IsRouter = 1 THEN 'Yes' ELSE 'No' END as IsRouter,
+                  CASE WHEN IsRoutable = 1 THEN 'Yes' ELSE 'No' END as IsRoutable,
+                  CASE WHEN IsReRouteAllowed = 1 THEN 'Yes' ELSE 'No' END as IsReRouteAllowed,
+                  CreatedById, CreatedDate, UpdatedById, UpdatedDate
+           FROM Workflows 
+           WHERE Id = ${workflowId}`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+          const table = createTable(result.data);
+          detailsDiv.innerHTML = table;
+        } else {
+          detailsDiv.innerHTML = '<div class="error">Workflow not found</div>';
+        }
+      } catch (error) {
+        detailsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+    
+    async function loadWorkflowActivities(workflowId) {
+      const activitiesDiv = document.getElementById('workflowActivities');
+      activitiesDiv.innerHTML = 'Loading activities...';
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT wa.Id, wa.Name, sv.Name as ActivityType, wa.Position,
+                  wa.ServiceLevelAgreementTicks,
+                  CASE WHEN wa.RequireSubcategoryWhenCategorySelected = 1 THEN 'Yes' ELSE 'No' END as RequireSubcategory,
+                  CASE WHEN wa.IsReopenReplyRequired = 1 THEN 'Yes' ELSE 'No' END as ReopenReplyRequired,
+                  wa.CreatedById, wa.CreatedDate, wa.UpdatedById, wa.UpdatedDate
+           FROM WorkflowActivities wa
+           LEFT JOIN SystemValues sv ON wa.ActivityTypeValueId = sv.Id
+           WHERE wa.WorkflowId = ${workflowId} AND wa.IsDeleted = 0
+           ORDER BY wa.Position`);
+        
+        if (result.success) {
+          if (result.data && result.data.length > 0) {
+            const table = createTable(result.data);
+            activitiesDiv.innerHTML = `<p>${result.data.length} activities found.</p>${table}`;
+          } else {
+            activitiesDiv.innerHTML = '<p>No activities found for this workflow.</p>';
+          }
+        } else {
+          activitiesDiv.innerHTML = `<div class="error">Failed to load activities: ${result.error}</div>`;
+        }
+      } catch (error) {
+        activitiesDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
       }
     }
   </script>

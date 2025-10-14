@@ -90,7 +90,13 @@
         <label for="password">Password:</label>
         <input type="password" id="password" required>
       </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="saveCredentials"> Remember credentials
+        </label>
+      </div>
       <button type="submit" id="loginBtn">Connect</button>
+      <button type="button" id="clearBtn" onclick="clearSavedCredentials()">Clear Saved</button>
       <div id="message"></div>
     </form>
   </div>

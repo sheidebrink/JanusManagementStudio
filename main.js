@@ -1,11 +1,13 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const sql = require('mssql');
 
 let mainWindow;
 let dbConnection = null;
 let currentTenant = null;
 let currentDatabase = null;
+const credentialsPath = path.join(__dirname, 'credentials.dat');
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -53,6 +55,22 @@ ipcMain.handle('connect-database', async (event, config) => {
     });
     
     currentDatabase = `${config.server}\\${config.database}`;
+    
+    // Set default tenant to 1
+    currentTenant = { id: 1, name: 'Default Tenant' };
+    
+    // Save credentials if requested
+    if (config.saveCredentials && safeStorage.isEncryptionAvailable()) {
+      const credentials = {
+        server: config.server,
+        database: config.database,
+        username: config.username,
+        password: config.password
+      };
+      const encrypted = safeStorage.encryptString(JSON.stringify(credentials));
+      fs.writeFileSync(credentialsPath, encrypted);
+    }
+    
     return { success: true, database: currentDatabase };
   } catch (error) {
     return { success: false, error: error.message };
@@ -94,4 +112,30 @@ ipcMain.handle('get-context', () => {
     database: currentDatabase,
     tenant: currentTenant
   };
+});
+
+// Load saved credentials
+ipcMain.handle('load-credentials', () => {
+  try {
+    if (fs.existsSync(credentialsPath) && safeStorage.isEncryptionAvailable()) {
+      const encrypted = fs.readFileSync(credentialsPath);
+      const decrypted = safeStorage.decryptString(encrypted);
+      return JSON.parse(decrypted);
+    }
+  } catch (error) {
+    console.error('Failed to load credentials:', error);
+  }
+  return null;
+});
+
+// Clear saved credentials
+ipcMain.handle('clear-credentials', () => {
+  try {
+    if (fs.existsSync(credentialsPath)) {
+      fs.unlinkSync(credentialsPath);
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });
