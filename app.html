@@ -506,7 +506,7 @@
         
         if (result.success) {
           if (result.data && result.data.length > 0) {
-            const table = createTable(result.data);
+            const table = createActivitiesTable(result.data, workflowId);
             activitiesDiv.innerHTML = `<p>${result.data.length} activities found.</p>${table}`;
           } else {
             activitiesDiv.innerHTML = '<p>No activities found for this workflow.</p>';
@@ -516,6 +516,117 @@
         }
       } catch (error) {
         activitiesDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+    
+    function createActivitiesTable(activities, workflowId) {
+      if (!activities || activities.length === 0) return '';
+      
+      let html = '';
+      
+      activities.forEach(activity => {
+        html += `<div style="margin-bottom: 20px; border: 1px solid #ddd; padding: 15px; border-radius: 5px;">`;
+        html += `<h5>Activity: ${activity.Name} (Position: ${activity.Position})</h5>`;
+        html += `<p><strong>Type:</strong> ${activity.ActivityType || 'Unknown'} | <strong>SLA Ticks:</strong> ${activity.ServiceLevelAgreementTicks || 'None'}</p>`;
+        html += `<p><strong>Require Subcategory:</strong> ${activity.RequireSubcategory} | <strong>Reopen Reply Required:</strong> ${activity.ReopenReplyRequired}</p>`;
+        html += `<div id="roles_${activity.Id}" style="margin-top: 10px;">Loading roles...</div>`;
+        html += `<div id="actions_${activity.Id}" style="margin-top: 10px;">Loading actions...</div>`;
+        html += `</div>`;
+      });
+      
+      // Load roles and actions for each activity
+      setTimeout(() => {
+        activities.forEach(activity => {
+          loadActivityRoles(activity.Id);
+          loadActivityActions(activity.Id);
+        });
+      }, 100);
+      
+      return html;
+    }
+    
+    async function loadActivityActions(activityId) {
+      const actionsDiv = document.getElementById(`actions_${activityId}`);
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT waa.Id, waa.Label, sv.Name as ActionType, waa.Position,
+                  waa.CreatedById, waa.CreatedDate, waa.UpdatedById, waa.UpdatedDate
+           FROM WorkflowActivityAction waa
+           LEFT JOIN SystemValues sv ON waa.WorkflowActivityActionValueId = sv.Id
+           WHERE waa.WorkflowActivityId = ${activityId} AND waa.IsDeleted = 0
+           ORDER BY waa.Position`);
+        
+        if (result.success) {
+          if (result.data && result.data.length > 0) {
+            let actionsHtml = '<strong>Actions:</strong><table style="margin-top: 5px; font-size: 11px;"><thead><tr>';
+            const headers = Object.keys(result.data[0]);
+            headers.forEach(header => {
+              actionsHtml += `<th>${header}</th>`;
+            });
+            actionsHtml += '</tr></thead><tbody>';
+            
+            result.data.forEach(row => {
+              actionsHtml += '<tr>';
+              headers.forEach(header => {
+                const value = row[header] !== null ? row[header] : 'NULL';
+                actionsHtml += `<td>${value}</td>`;
+              });
+              actionsHtml += '</tr>';
+            });
+            actionsHtml += '</tbody></table>';
+            
+            actionsDiv.innerHTML = actionsHtml;
+          } else {
+            actionsDiv.innerHTML = '<em>No actions defined for this activity.</em>';
+          }
+        } else {
+          actionsDiv.innerHTML = `<em>Error loading actions: ${result.error}</em>`;
+        }
+      } catch (error) {
+        actionsDiv.innerHTML = `<em>Error: ${error.message}</em>`;
+      }
+    }
+    
+    async function loadActivityRoles(activityId) {
+      const rolesDiv = document.getElementById(`roles_${activityId}`);
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT war.Id, war.RoleId,
+                  war.CreatedById, war.CreatedDate, war.UpdatedById, war.UpdatedDate
+           FROM WorkflowActivityRole war
+           WHERE war.WorkflowActivityId = ${activityId} AND war.IsDeleted = 0
+           ORDER BY war.RoleId`);
+        
+        if (result.success) {
+          if (result.data && result.data.length > 0) {
+            let rolesHtml = '<strong>Roles:</strong><table style="margin-top: 5px; font-size: 11px;"><thead><tr>';
+            const headers = Object.keys(result.data[0]);
+            headers.forEach(header => {
+              rolesHtml += `<th>${header}</th>`;
+            });
+            rolesHtml += '</tr></thead><tbody>';
+            
+            result.data.forEach(row => {
+              rolesHtml += '<tr>';
+              headers.forEach(header => {
+                const value = row[header] !== null ? row[header] : 'NULL';
+                rolesHtml += `<td>${value}</td>`;
+              });
+              rolesHtml += '</tr>';
+            });
+            rolesHtml += '</tbody></table>';
+            
+            rolesDiv.innerHTML = rolesHtml;
+          } else {
+            rolesDiv.innerHTML = '<em>No roles assigned to this activity.</em>';
+          }
+        } else {
+          rolesDiv.innerHTML = `<em>Error loading roles: ${result.error}</em>`;
+        }
+      } catch (error) {
+        rolesDiv.innerHTML = `<em>Error: ${error.message}</em>`;
       }
     }
   </script>
