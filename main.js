@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const sql = require('mssql');
@@ -8,11 +8,16 @@ let dbConnection = null;
 let currentTenant = null;
 let currentDatabase = null;
 const credentialsPath = path.join(__dirname, 'credentials.dat');
+const windowStatePath = path.join(__dirname, 'windowstate.json');
 
 function createWindow() {
+  const windowState = loadWindowState();
+  
   mainWindow = new BrowserWindow({
-    width: 450,
-    height: 600,
+    width: windowState.width || 450,
+    height: windowState.height || 600,
+    x: windowState.x,
+    y: windowState.y,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -23,6 +28,51 @@ function createWindow() {
   });
 
   mainWindow.loadFile('login.html');
+  
+  mainWindow.on('moved', saveWindowState);
+  mainWindow.on('resized', saveWindowState);
+}
+
+function loadWindowState() {
+  try {
+    if (fs.existsSync(windowStatePath)) {
+      const state = JSON.parse(fs.readFileSync(windowStatePath, 'utf8'));
+      const displays = screen.getAllDisplays();
+      
+      // Check if saved position is still valid
+      const validDisplay = displays.find(display => 
+        state.x >= display.bounds.x && 
+        state.x < display.bounds.x + display.bounds.width &&
+        state.y >= display.bounds.y && 
+        state.y < display.bounds.y + display.bounds.height
+      );
+      
+      if (validDisplay) {
+        return state;
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load window state:', error);
+  }
+  
+  // Default to primary display center
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+  return {
+    x: Math.round((width - 450) / 2),
+    y: Math.round((height - 600) / 2),
+    width: 450,
+    height: 600
+  };
+}
+
+function saveWindowState() {
+  try {
+    const bounds = mainWindow.getBounds();
+    fs.writeFileSync(windowStatePath, JSON.stringify(bounds));
+  } catch (error) {
+    console.error('Failed to save window state:', error);
+  }
 }
 
 app.whenReady().then(createWindow);
@@ -95,9 +145,9 @@ ipcMain.handle('execute-query', async (event, query) => {
 ipcMain.handle('show-main-app', () => {
   mainWindow.setSize(1200, 800);
   mainWindow.setResizable(true);
-  mainWindow.center();
   mainWindow.setTitle('Janus Management Studio');
   mainWindow.loadFile('app.html');
+  saveWindowState();
 });
 
 // Set current tenant

@@ -96,7 +96,7 @@
       border: 1px solid #ccc;
       box-shadow: 0 2px 5px rgba(0,0,0,0.2);
       min-width: 120px;
-      z-index: 1000;
+      z-index: 2000;
     }
     .dropdown div {
       padding: 8px 16px;
@@ -111,28 +111,45 @@
     .page.active {
       display: block;
     }
+    input[type="text"] {
+      padding: 5px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+    }
+    .chart-tooltip {
+      position: absolute;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 1000;
+      display: none;
+    }
   </style>
 </head>
 <body>
   <div class="menubar">
     <div class="menu-item" onclick="showHomePage()">🏠 Home</div>
     <div class="menu-item" onclick="toggleMenu('systemMenu')">
-      System
+      ⚙️ System
       <div id="systemMenu" class="dropdown">
-        <div onclick="showTenantsPage()">Tenants</div>
+        <div onclick="showTenantsPage(); closeAllMenus()">👥 Tenants</div>
+        <div onclick="showUserTrackingPage(); closeAllMenus()">📊 User Tracking</div>
       </div>
     </div>
     <div class="menu-item" onclick="toggleMenu('manageMenu')">
-      Manage
+      📋 Manage
       <div id="manageMenu" class="dropdown">
-        <div onclick="showWorkflowsPage()">Workflows</div>
+        <div onclick="showWorkflowsPage(); closeAllMenus()">🔄 Workflows</div>
       </div>
     </div>
   </div>
   
   <div class="header">
     <h1>Janus Management Studio</h1>
-    <p>Connected to database</p>
+    <p id="headerConnectionInfo">Connected to database</p>
   </div>
   
   <div id="homePage" class="page active">
@@ -146,6 +163,7 @@
       <p>Use the menu above to navigate to different sections:</p>
       <ul>
         <li><strong>System → Tenants</strong> - View and manage tenant information</li>
+        <li><strong>System → User Tracking</strong> - View user activity tracking data</li>
         <li><strong>Manage → Workflows</strong> - View workflows for selected tenant</li>
       </ul>
     </div>
@@ -174,6 +192,53 @@
     <div class="results">
       <h3>Workflows List</h3>
       <div id="workflowsResults">Select a tenant to view workflows.</div>
+    </div>
+  </div>
+
+  <div id="userTrackingPage" class="page">
+    <div class="query-section">
+      <h3>System - User Tracking</h3>
+      <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+        <input type="date" id="dateFromFilter" style="width: 150px;" placeholder="From Date">
+        <input type="date" id="dateThroughFilter" style="width: 150px;" placeholder="Through Date">
+        <select id="moduleFilter" multiple style="width: 150px; height: 80px;">
+          <option value="">Loading modules...</option>
+        </select>
+        <select id="functionFilter" multiple style="width: 150px; height: 80px;">
+          <option value="">Loading functions...</option>
+        </select>
+        <select id="tenantFilter" multiple style="width: 150px; height: 80px;">
+          <option value="">Loading tenants...</option>
+        </select>
+        <button onclick="loadUserTracking(1)">Apply Filters</button>
+        <button onclick="clearFilters()">Clear</button>
+      </div>
+      <div id="trackingPagination" style="margin-bottom: 10px;"></div>
+    </div>
+    
+    <div class="results">
+      <h3>User Tracking Data</h3>
+      <div id="userTrackingResults">Loading user tracking data...</div>
+      
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%;">
+        <div style="width: 100%; position: relative;">
+          <h3>Top 10 Functions</h3>
+          <canvas id="functionsChart" width="500" height="300"></canvas>
+        </div>
+        <div style="width: 100%; position: relative;">
+          <h3>Top 10 URL Paths</h3>
+          <canvas id="pathsChart" width="500" height="300"></canvas>
+        </div>
+        <div style="width: 100%; position: relative;">
+          <h3>Top 10 Modules</h3>
+          <canvas id="modulesChart" width="500" height="300"></canvas>
+        </div>
+        <div style="width: 100%; position: relative;">
+          <h3>Top 10 Users</h3>
+          <canvas id="usersChart" width="500" height="300"></canvas>
+        </div>
+      </div>
+      <div id="chartTooltip" class="chart-tooltip"></div>
     </div>
   </div>
 
@@ -206,6 +271,8 @@
         document.getElementById('currentDatabase').textContent = context.database || 'Not connected';
         document.getElementById('currentTenant').textContent = context.tenant ? 
           `${context.tenant.name} (ID: ${context.tenant.id})` : 'None selected';
+        document.getElementById('headerConnectionInfo').textContent = 
+          `Connected to ${context.database || 'database'}`;
       } catch (error) {
         console.error('Failed to load context:', error);
       }
@@ -227,9 +294,13 @@
     // Close dropdowns when clicking elsewhere
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.menu-item')) {
-        document.querySelectorAll('.dropdown').forEach(d => d.style.display = 'none');
+        closeAllMenus();
       }
     });
+    
+    function closeAllMenus() {
+      document.querySelectorAll('.dropdown').forEach(d => d.style.display = 'none');
+    }
     
     function createTable(data) {
       if (!data || data.length === 0) return '';
@@ -293,7 +364,7 @@
     function showHomePage() {
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById('homePage').classList.add('active');
-      document.querySelectorAll('.dropdown').forEach(d => d.style.display = 'none');
+      closeAllMenus();
       updateContext();
     }
     
@@ -628,6 +699,470 @@
       } catch (error) {
         rolesDiv.innerHTML = `<em>Error: ${error.message}</em>`;
       }
+    }
+    
+    function showUserTrackingPage() {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('userTrackingPage').classList.add('active');
+      document.querySelectorAll('.dropdown').forEach(d => d.style.display = 'none');
+      setDefaultDates();
+      loadFilterOptions();
+      loadUserTracking(1);
+    }
+    
+    function setDefaultDates() {
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('dateFromFilter').value = today;
+      document.getElementById('dateThroughFilter').value = today;
+    }
+    
+    async function loadFilterOptions() {
+      try {
+        // Load modules
+        const modules = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT sm.name FROM SystemModules sm ORDER BY sm.name');
+        populateSelect('moduleFilter', modules.data, 'name');
+        
+        // Load functions
+        const functions = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT sf.Name FROM systemfunctions sf ORDER BY sf.Name');
+        populateSelect('functionFilter', functions.data, 'Name');
+        
+        // Load tenants
+        const tenants = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT t.name FROM Tenants t ORDER BY t.name');
+        populateSelect('tenantFilter', tenants.data, 'name');
+        
+
+      } catch (error) {
+        console.error('Failed to load filter options:', error);
+      }
+    }
+    
+    function populateSelect(selectId, data, fieldName) {
+      const select = document.getElementById(selectId);
+      select.innerHTML = '';
+      
+      if (data && data.length > 0) {
+        data.forEach(item => {
+          const option = document.createElement('option');
+          option.value = item[fieldName];
+          option.textContent = item[fieldName];
+          select.appendChild(option);
+        });
+      }
+    }
+    
+    function getSelectedValues(selectId) {
+      const select = document.getElementById(selectId);
+      return Array.from(select.selectedOptions).map(option => option.value);
+    }
+    
+    let currentTrackingPage = 1;
+    let trackingSortField = 'sut.CreatedDate';
+    let trackingSortOrder = 'DESC';
+    
+    async function loadUserTracking(page = 1) {
+      currentTrackingPage = page;
+      const resultsDiv = document.getElementById('userTrackingResults');
+      const paginationDiv = document.getElementById('trackingPagination');
+      
+      const moduleFilter = getSelectedValues('moduleFilter');
+      const functionFilter = getSelectedValues('functionFilter');
+      const tenantFilter = getSelectedValues('tenantFilter');
+      const dateFrom = document.getElementById('dateFromFilter').value;
+      const dateThrough = document.getElementById('dateThroughFilter').value;
+      
+      let whereClause = 'WHERE 1=1';
+      if (moduleFilter.length > 0) {
+        const moduleList = moduleFilter.map(m => `'${m}'`).join(',');
+        whereClause += ` AND sm.name IN (${moduleList})`;
+      }
+      if (functionFilter.length > 0) {
+        const functionList = functionFilter.map(f => `'${f}'`).join(',');
+        whereClause += ` AND sf.Name IN (${functionList})`;
+      }
+      if (tenantFilter.length > 0) {
+        const tenantList = tenantFilter.map(t => `'${t}'`).join(',');
+        whereClause += ` AND t.name IN (${tenantList})`;
+      }
+      if (dateFrom) {
+        whereClause += ` AND sut.CreatedDate >= '${dateFrom}'`;
+      }
+      if (dateThrough) {
+        whereClause += ` AND sut.CreatedDate <= '${dateThrough} 23:59:59'`;
+      }
+      
+      const offset = (page - 1) * 100;
+      
+      resultsDiv.innerHTML = 'Loading user tracking data...';
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT TOP 100 * FROM (
+             SELECT ROW_NUMBER() OVER (ORDER BY ${trackingSortField} ${trackingSortOrder}) as RowNum,
+                    sm.name as [Module], sf.Name as [Function], t.name as [Tenant],
+                    a.AccountId as [Account], p.FirstName + ' ' + p.LastName as [User],
+                    sut.[Path], sut.CreatedDate
+             FROM SystemUserTrackings sut
+             INNER JOIN People p ON p.applicationuserid = sut.Createdbyid
+             INNER JOIN Accounts a ON a.id = p.AccountId
+             INNER JOIN Tenants t ON t.id = a.TenantId
+             INNER JOIN systemfunctions sf ON sf.id = sut.FunctionId
+             INNER JOIN SystemModules sm ON sm.id = sf.SystemModuleId
+             ${whereClause}
+           ) AS NumberedResults
+           WHERE RowNum > ${offset}
+           ORDER BY RowNum`);
+        
+        if (result.success) {
+          if (result.data && result.data.length > 0) {
+            const table = createSortableTable(result.data, 'tracking');
+            resultsDiv.innerHTML = table;
+            
+            // Update pagination
+            const hasMore = result.data.length === 100;
+            updatePagination(page, hasMore, 'loadUserTracking');
+            
+            // Load chart data
+            loadAllCharts();
+          } else {
+            resultsDiv.innerHTML = '<p>No user tracking data found.</p>';
+            paginationDiv.innerHTML = '';
+          }
+        } else {
+          resultsDiv.innerHTML = `<div class="error">Failed to load user tracking: ${result.error}</div>`;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+    
+    function createSortableTable(data, tableType) {
+      if (!data || data.length === 0) return '';
+      
+      const headers = Object.keys(data[0]);
+      let html = '<table><thead><tr>';
+      
+      headers.forEach(header => {
+        html += `<th style="cursor: pointer;" onclick="sortTable('${header}', '${tableType}')">${header} ↕</th>`;
+      });
+      html += '</tr></thead><tbody>';
+      
+      data.forEach(row => {
+        html += '<tr>';
+        headers.forEach(header => {
+          const value = row[header] !== null ? row[header] : 'NULL';
+          html += `<td>${value}</td>`;
+        });
+        html += '</tr>';
+      });
+      
+      html += '</tbody></table>';
+      return html;
+    }
+    
+    function sortTable(field, tableType) {
+      if (tableType === 'tracking') {
+        trackingSortOrder = (trackingSortField === field && trackingSortOrder === 'ASC') ? 'DESC' : 'ASC';
+        trackingSortField = field;
+        loadUserTracking(currentTrackingPage);
+      }
+    }
+    
+    function updatePagination(currentPage, hasMore, loadFunction) {
+      const paginationDiv = document.getElementById('trackingPagination');
+      let html = `Page ${currentPage} `;
+      
+      if (currentPage > 1) {
+        html += `<button onclick="${loadFunction}(${currentPage - 1})">Previous</button> `;
+      }
+      
+      if (hasMore) {
+        html += `<button onclick="${loadFunction}(${currentPage + 1})">Next</button>`;
+      }
+      
+      paginationDiv.innerHTML = html;
+    }
+    
+    function clearFilters() {
+      document.getElementById('moduleFilter').selectedIndex = -1;
+      document.getElementById('functionFilter').selectedIndex = -1;
+      document.getElementById('tenantFilter').selectedIndex = -1;
+      setDefaultDates();
+      loadUserTracking(1);
+    }
+    
+    function getWhereClause() {
+      const moduleFilter = getSelectedValues('moduleFilter');
+      const functionFilter = getSelectedValues('functionFilter');
+      const tenantFilter = getSelectedValues('tenantFilter');
+      const dateFrom = document.getElementById('dateFromFilter').value;
+      const dateThrough = document.getElementById('dateThroughFilter').value;
+      
+      let whereClause = 'WHERE 1=1';
+      if (moduleFilter.length > 0) {
+        const moduleList = moduleFilter.map(m => `'${m}'`).join(',');
+        whereClause += ` AND sm.name IN (${moduleList})`;
+      }
+      if (functionFilter.length > 0) {
+        const functionList = functionFilter.map(f => `'${f}'`).join(',');
+        whereClause += ` AND sf.Name IN (${functionList})`;
+      }
+      if (tenantFilter.length > 0) {
+        const tenantList = tenantFilter.map(t => `'${t}'`).join(',');
+        whereClause += ` AND t.name IN (${tenantList})`;
+      }
+      if (dateFrom) {
+        whereClause += ` AND sut.CreatedDate >= '${dateFrom}'`;
+      }
+      if (dateThrough) {
+        whereClause += ` AND sut.CreatedDate <= '${dateThrough} 23:59:59'`;
+      }
+      return whereClause;
+    }
+    
+    async function loadAllCharts() {
+      const whereClause = getWhereClause();
+      
+      try {
+        // Functions chart
+        const functionsResult = await ipcRenderer.invoke('execute-query', 
+          `SELECT TOP 10 sf.Name as [Function], COUNT(*) as [Count]
+           FROM SystemUserTrackings sut
+           INNER JOIN People p ON p.applicationuserid = sut.Createdbyid
+           INNER JOIN Accounts a ON a.id = p.AccountId
+           INNER JOIN Tenants t ON t.id = a.TenantId
+           INNER JOIN systemfunctions sf ON sf.id = sut.FunctionId
+           INNER JOIN SystemModules sm ON sm.id = sf.SystemModuleId
+           ${whereClause}
+           GROUP BY sf.Name
+           ORDER BY COUNT(*) DESC`);
+        
+        if (functionsResult.success && functionsResult.data) {
+          drawPieChart(functionsResult.data, 'functionsChart');
+          addChartTooltips('functionsChart', functionsResult.data, 'pie', 'Function');
+        }
+        
+        // Paths chart
+        const pathsResult = await ipcRenderer.invoke('execute-query', 
+          `SELECT TOP 10 sut.[Path], COUNT(*) as [Count]
+           FROM SystemUserTrackings sut
+           INNER JOIN People p ON p.applicationuserid = sut.Createdbyid
+           INNER JOIN Accounts a ON a.id = p.AccountId
+           INNER JOIN Tenants t ON t.id = a.TenantId
+           INNER JOIN systemfunctions sf ON sf.id = sut.FunctionId
+           INNER JOIN SystemModules sm ON sm.id = sf.SystemModuleId
+           ${whereClause}
+           GROUP BY sut.[Path]
+           ORDER BY COUNT(*) DESC`);
+        
+        if (pathsResult.success && pathsResult.data) {
+          drawBarChart(pathsResult.data, 'pathsChart', 'Path');
+          addChartTooltips('pathsChart', pathsResult.data, 'bar', 'Path');
+        }
+        
+        // Modules chart
+        const modulesResult = await ipcRenderer.invoke('execute-query', 
+          `SELECT TOP 10 sm.name as [Module], COUNT(*) as [Count]
+           FROM SystemUserTrackings sut
+           INNER JOIN People p ON p.applicationuserid = sut.Createdbyid
+           INNER JOIN Accounts a ON a.id = p.AccountId
+           INNER JOIN Tenants t ON t.id = a.TenantId
+           INNER JOIN systemfunctions sf ON sf.id = sut.FunctionId
+           INNER JOIN SystemModules sm ON sm.id = sf.SystemModuleId
+           ${whereClause}
+           GROUP BY sm.name
+           ORDER BY COUNT(*) DESC`);
+        
+        if (modulesResult.success && modulesResult.data) {
+          drawBarChart(modulesResult.data, 'modulesChart', 'Module');
+          addChartTooltips('modulesChart', modulesResult.data, 'bar', 'Module');
+        }
+        
+        // Users chart
+        const usersResult = await ipcRenderer.invoke('execute-query', 
+          `SELECT TOP 10 p.FirstName + ' ' + p.LastName as [User], COUNT(*) as [Count]
+           FROM SystemUserTrackings sut
+           INNER JOIN People p ON p.applicationuserid = sut.Createdbyid
+           INNER JOIN Accounts a ON a.id = p.AccountId
+           INNER JOIN Tenants t ON t.id = a.TenantId
+           INNER JOIN systemfunctions sf ON sf.id = sut.FunctionId
+           INNER JOIN SystemModules sm ON sm.id = sf.SystemModuleId
+           ${whereClause}
+           GROUP BY p.FirstName, p.LastName
+           ORDER BY COUNT(*) DESC`);
+        
+        if (usersResult.success && usersResult.data) {
+          drawBarChart(usersResult.data, 'usersChart', 'User');
+          addChartTooltips('usersChart', usersResult.data, 'bar', 'User');
+        }
+        
+      } catch (error) {
+        console.error('Failed to load chart data:', error);
+      }
+    }
+    
+    function drawPieChart(data, canvasId) {
+      const canvas = document.getElementById(canvasId);
+      const ctx = canvas.getContext('2d');
+      
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      if (!data || data.length === 0) return;
+      
+      const total = data.reduce((sum, item) => sum + item.Count, 0);
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const radius = Math.min(centerX, centerY) - 20;
+      
+      let currentAngle = 0;
+      const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#FF6384'];
+      
+      data.forEach((item, index) => {
+        const sliceAngle = (item.Count / total) * 2 * Math.PI;
+        
+        // Draw slice
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.arc(centerX, centerY, radius, currentAngle, currentAngle + sliceAngle);
+        ctx.closePath();
+        ctx.fillStyle = colors[index % colors.length];
+        ctx.fill();
+        
+        // Draw label
+        const labelAngle = currentAngle + sliceAngle / 2;
+        const labelX = centerX + Math.cos(labelAngle) * (radius * 0.7);
+        const labelY = centerY + Math.sin(labelAngle) * (radius * 0.7);
+        
+        ctx.fillStyle = 'white';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        const label = item.Function || item.Module || item.User || item.Path;
+        ctx.fillText(label.length > 10 ? label.substring(0, 10) + '...' : label, labelX, labelY);
+        ctx.fillText(item.Count, labelX, labelY + 12);
+        
+        currentAngle += sliceAngle;
+      });
+    }
+    
+    function drawBarChart(data, canvasId, labelField) {
+      const canvas = document.getElementById(canvasId);
+      const ctx = canvas.getContext('2d');
+      
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      if (!data || data.length === 0) return;
+      
+      const maxCount = Math.max(...data.map(item => item.Count));
+      const barWidth = (canvas.width - 120) / data.length;
+      const maxBarHeight = canvas.height - 150;
+      
+      const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#FF6384'];
+      
+      data.forEach((item, index) => {
+        const barHeight = (item.Count / maxCount) * maxBarHeight;
+        const x = 60 + index * barWidth;
+        const y = canvas.height - 130 - barHeight;
+        
+        // Draw bar
+        ctx.fillStyle = colors[index % colors.length];
+        ctx.fillRect(x, y, barWidth - 10, barHeight);
+        
+        // Draw count on top of bar
+        ctx.fillStyle = 'black';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(item.Count, x + barWidth/2, y - 5);
+        
+        // Draw label at bottom
+        ctx.save();
+        ctx.translate(x + barWidth/2, canvas.height - 50);
+        ctx.rotate(-Math.PI/4);
+        ctx.textAlign = 'right';
+        ctx.font = '10px Arial';
+        const label = item[labelField] || '';
+        ctx.fillText(label.length > 15 ? label.substring(0, 15) + '...' : label, 0, 0);
+        ctx.restore();
+      });
+    }
+    
+    function addChartTooltips(canvasId, data, chartType, labelField) {
+      const canvas = document.getElementById(canvasId);
+      const tooltip = document.getElementById('chartTooltip');
+      
+      canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        let hoveredItem = null;
+        
+        if (chartType === 'pie') {
+          hoveredItem = getPieSliceAt(x, y, data, canvas);
+        } else if (chartType === 'bar') {
+          hoveredItem = getBarAt(x, y, data, canvas);
+        }
+        
+        if (hoveredItem) {
+          const label = hoveredItem[labelField] || hoveredItem.Function || hoveredItem.Module || hoveredItem.User || hoveredItem.Path;
+          tooltip.innerHTML = `${label}<br>Count: ${hoveredItem.Count}`;
+          tooltip.style.display = 'block';
+          tooltip.style.left = (e.clientX + 10) + 'px';
+          tooltip.style.top = (e.clientY - 10) + 'px';
+        } else {
+          tooltip.style.display = 'none';
+        }
+      });
+      
+      canvas.addEventListener('mouseleave', () => {
+        tooltip.style.display = 'none';
+      });
+    }
+    
+    function getPieSliceAt(x, y, data, canvas) {
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const radius = Math.min(centerX, centerY) - 20;
+      
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      if (distance > radius) return null;
+      
+      let angle = Math.atan2(dy, dx);
+      if (angle < 0) angle += 2 * Math.PI;
+      
+      const total = data.reduce((sum, item) => sum + item.Count, 0);
+      let currentAngle = 0;
+      
+      for (let i = 0; i < data.length; i++) {
+        const sliceAngle = (data[i].Count / total) * 2 * Math.PI;
+        if (angle >= currentAngle && angle <= currentAngle + sliceAngle) {
+          return data[i];
+        }
+        currentAngle += sliceAngle;
+      }
+      
+      return null;
+    }
+    
+    function getBarAt(x, y, data, canvas) {
+      const barWidth = (canvas.width - 120) / data.length;
+      const maxBarHeight = canvas.height - 150;
+      const maxCount = Math.max(...data.map(item => item.Count));
+      
+      for (let i = 0; i < data.length; i++) {
+        const barHeight = (data[i].Count / maxCount) * maxBarHeight;
+        const barX = 60 + i * barWidth;
+        const barY = canvas.height - 130 - barHeight;
+        
+        if (x >= barX && x <= barX + barWidth - 10 && y >= barY && y <= barY + barHeight) {
+          return data[i];
+        }
+      }
+      
+      return null;
     }
   </script>
 </body>
