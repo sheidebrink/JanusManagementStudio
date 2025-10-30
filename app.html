@@ -61,6 +61,22 @@
       text-align: left;
       white-space: nowrap;
     }
+    .logs-table {
+      font-size: 10px;
+    }
+    .logs-table th, .logs-table td {
+      padding: 4px;
+      max-width: 150px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .logs-table .description-col {
+      max-width: 200px;
+    }
+    .logs-table .summary-col {
+      max-width: 120px;
+    }
     th {
       background: #f8f9fa;
     }
@@ -137,6 +153,7 @@
       <div id="systemMenu" class="dropdown">
         <div onclick="showTenantsPage(); closeAllMenus()">👥 Tenants</div>
         <div onclick="showUserTrackingPage(); closeAllMenus()">📊 User Tracking</div>
+        <div onclick="showLogsPage(); closeAllMenus()">📄 Logs</div>
       </div>
     </div>
     <div class="menu-item" onclick="toggleMenu('manageMenu')">
@@ -164,6 +181,7 @@
       <ul>
         <li><strong>System → Tenants</strong> - View and manage tenant information</li>
         <li><strong>System → User Tracking</strong> - View user activity tracking data</li>
+        <li><strong>System → Logs</strong> - View system logs and errors</li>
         <li><strong>Manage → Workflows</strong> - View workflows for selected tenant</li>
       </ul>
     </div>
@@ -239,6 +257,26 @@
         </div>
       </div>
       <div id="chartTooltip" class="chart-tooltip"></div>
+    </div>
+  </div>
+
+  <div id="logsPage" class="page">
+    <div class="query-section">
+      <h3>System - Logs</h3>
+      <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+        <input type="date" id="logsDateFromFilter" style="width: 150px;" placeholder="From Date">
+        <input type="date" id="logsDateThroughFilter" style="width: 150px;" placeholder="Through Date">
+        <button onclick="loadLogs(1)">Apply Filters</button>
+        <button onclick="clearLogsFilters()">Clear</button>
+      </div>
+      <div id="logsPagination" style="margin-bottom: 10px;"></div>
+    </div>
+    
+    <div class="results">
+      <h3>System Logs</h3>
+      <div id="logsResults">Loading logs...</div>
+    </div>
+  </div>
     </div>
   </div>
 
@@ -839,18 +877,29 @@
       if (!data || data.length === 0) return '';
       
       const headers = Object.keys(data[0]);
-      let html = '<table><thead><tr>';
+      let tableClass = tableType === 'logs' ? 'logs-table' : '';
+      let html = `<table class="${tableClass}"><thead><tr>`;
       
       headers.forEach(header => {
-        html += `<th style="cursor: pointer;" onclick="sortTable('${header}', '${tableType}')">${header} ↕</th>`;
+        let colClass = '';
+        if (tableType === 'logs') {
+          if (header === 'Description') colClass = 'description-col';
+          if (header === 'Summary') colClass = 'summary-col';
+        }
+        html += `<th class="${colClass}" style="cursor: pointer;" onclick="sortTable('${header}', '${tableType}')">${header} ↕</th>`;
       });
       html += '</tr></thead><tbody>';
       
       data.forEach(row => {
         html += '<tr>';
         headers.forEach(header => {
+          let colClass = '';
+          if (tableType === 'logs') {
+            if (header === 'Description') colClass = 'description-col';
+            if (header === 'Summary') colClass = 'summary-col';
+          }
           const value = row[header] !== null ? row[header] : 'NULL';
-          html += `<td>${value}</td>`;
+          html += `<td class="${colClass}" title="${value}">${value}</td>`;
         });
         html += '</tr>';
       });
@@ -1017,8 +1066,18 @@
       let currentAngle = 0;
       const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#FF6384'];
       
+      // Store slice data for tooltip detection
+      canvas.sliceData = [];
+      
       data.forEach((item, index) => {
         const sliceAngle = (item.Count / total) * 2 * Math.PI;
+        
+        // Store slice info
+        canvas.sliceData.push({
+          startAngle: currentAngle,
+          endAngle: currentAngle + sliceAngle,
+          data: item
+        });
         
         // Draw slice
         ctx.beginPath();
@@ -1128,20 +1187,18 @@
       const dy = y - centerY;
       const distance = Math.sqrt(dx * dx + dy * dy);
       
-      if (distance > radius) return null;
+      if (distance > radius || distance < 10) return null;
       
       let angle = Math.atan2(dy, dx);
       if (angle < 0) angle += 2 * Math.PI;
       
-      const total = data.reduce((sum, item) => sum + item.Count, 0);
-      let currentAngle = 0;
-      
-      for (let i = 0; i < data.length; i++) {
-        const sliceAngle = (data[i].Count / total) * 2 * Math.PI;
-        if (angle >= currentAngle && angle <= currentAngle + sliceAngle) {
-          return data[i];
+      // Use stored slice data for accurate detection
+      if (canvas.sliceData) {
+        for (let slice of canvas.sliceData) {
+          if (angle >= slice.startAngle && angle <= slice.endAngle) {
+            return slice.data;
+          }
         }
-        currentAngle += sliceAngle;
       }
       
       return null;
@@ -1163,6 +1220,110 @@
       }
       
       return null;
+    }
+    
+    function showLogsPage() {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('logsPage').classList.add('active');
+      closeAllMenus();
+      setDefaultLogsDates();
+      loadLogs(1);
+    }
+    
+    function setDefaultLogsDates() {
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('logsDateFromFilter').value = today;
+      document.getElementById('logsDateThroughFilter').value = today;
+    }
+    
+    let currentLogsPage = 1;
+    let logsSortField = 'CreatedDate';
+    let logsSortOrder = 'DESC';
+    
+    async function loadLogs(page = 1) {
+      currentLogsPage = page;
+      const resultsDiv = document.getElementById('logsResults');
+      const paginationDiv = document.getElementById('logsPagination');
+      
+      const dateFrom = document.getElementById('logsDateFromFilter').value;
+      const dateThrough = document.getElementById('logsDateThroughFilter').value;
+      
+      let whereClause = 'WHERE IsDeleted = 0';
+      if (dateFrom) {
+        whereClause += ` AND CreatedDate >= '${dateFrom}'`;
+      }
+      if (dateThrough) {
+        whereClause += ` AND CreatedDate <= '${dateThrough} 23:59:59'`;
+      }
+      
+      const offset = (page - 1) * 100;
+      
+      resultsDiv.innerHTML = 'Loading logs...';
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT TOP 100 * FROM (
+             SELECT ROW_NUMBER() OVER (ORDER BY ${logsSortField} ${logsSortOrder}) as RowNum,
+                    [Id], [Summary], [Description], [Origin], [LogLevel], 
+                    CASE WHEN [Resolved] = 1 THEN 'Yes' ELSE 'No' END as [Resolved],
+                    [ResolvedDate], [Resolution], [CreatedById], [CreatedDate], 
+                    [UpdatedById], [UpdatedDate]
+             FROM Logs
+             ${whereClause}
+           ) AS NumberedResults
+           WHERE RowNum > ${offset}
+           ORDER BY RowNum`);
+        
+        if (result.success) {
+          if (result.data && result.data.length > 0) {
+            const table = createSortableTable(result.data, 'logs');
+            resultsDiv.innerHTML = table;
+            
+            // Update pagination
+            const hasMore = result.data.length === 100;
+            updateLogsPagination(page, hasMore);
+          } else {
+            resultsDiv.innerHTML = '<p>No logs found.</p>';
+            paginationDiv.innerHTML = '';
+          }
+        } else {
+          resultsDiv.innerHTML = `<div class="error">Failed to load logs: ${result.error}</div>`;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+    
+    function updateLogsPagination(currentPage, hasMore) {
+      const paginationDiv = document.getElementById('logsPagination');
+      let html = `Page ${currentPage} `;
+      
+      if (currentPage > 1) {
+        html += `<button onclick="loadLogs(${currentPage - 1})">Previous</button> `;
+      }
+      
+      if (hasMore) {
+        html += `<button onclick="loadLogs(${currentPage + 1})">Next</button>`;
+      }
+      
+      paginationDiv.innerHTML = html;
+    }
+    
+    function clearLogsFilters() {
+      setDefaultLogsDates();
+      loadLogs(1);
+    }
+    
+    function sortTable(field, tableType) {
+      if (tableType === 'tracking') {
+        trackingSortOrder = (trackingSortField === field && trackingSortOrder === 'ASC') ? 'DESC' : 'ASC';
+        trackingSortField = field;
+        loadUserTracking(currentTrackingPage);
+      } else if (tableType === 'logs') {
+        logsSortOrder = (logsSortField === field && logsSortOrder === 'ASC') ? 'DESC' : 'ASC';
+        logsSortField = field;
+        loadLogs(currentLogsPage);
+      }
     }
   </script>
 </body>
