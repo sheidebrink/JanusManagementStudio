@@ -974,8 +974,15 @@
             if (header === 'Data') colClass = 'data-col';
             if (header === 'Path') colClass = 'path-col';
           }
-          const value = row[header] !== null ? row[header] : 'NULL';
-          html += `<td class="${colClass}" title="${value}">${value}</td>`;
+          
+          let value = row[header] !== null ? row[header] : 'NULL';
+          
+          // Make WorkflowId clickable if it has a value and we're on roles page
+          if (tableType === 'roles' && header === 'WorkflowId' && value !== 'NULL' && value !== null) {
+            value = `<a href="#" onclick="openWorkflowFromRoles(${value}, '${row.Workflow}')" style="color: blue; text-decoration: underline;">${value}</a>`;
+          }
+          
+          html += `<td class="${colClass}" title="${row[header]}">${value}</td>`;
         });
         html += '</tr>';
       });
@@ -1541,6 +1548,16 @@
       document.getElementById('rolesWorkflowFilter').selectedIndex = -1;
       document.getElementById('rolesLastNameFilter').selectedIndex = -1;
       loadRoles(1);
+    }
+    
+    function openWorkflowFromRoles(workflowId, workflowName) {
+      // Switch to workflows page and open the specific workflow
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('workflowOpenPage').classList.add('active');
+      document.getElementById('workflowTitle').textContent = `Workflow: ${workflowName}`;
+      
+      loadWorkflowDetails(workflowId);
+      loadWorkflowActivities(workflowId);
     }
     
     function sortTable(field, tableType) {
