@@ -77,6 +77,16 @@
     .logs-table .summary-col {
       max-width: 120px;
     }
+    .tracking-table .data-col {
+      max-width: 200px;
+      white-space: normal;
+      word-wrap: break-word;
+    }
+    .tracking-table .path-col {
+      max-width: 200px;
+      white-space: normal;
+      word-wrap: break-word;
+    }
     th {
       background: #f8f9fa;
     }
@@ -154,6 +164,7 @@
         <div onclick="showTenantsPage(); closeAllMenus()">👥 Tenants</div>
         <div onclick="showUserTrackingPage(); closeAllMenus()">📊 User Tracking</div>
         <div onclick="showLogsPage(); closeAllMenus()">📄 Logs</div>
+        <div onclick="showRolesPage(); closeAllMenus()">🔑 Roles</div>
       </div>
     </div>
     <div class="menu-item" onclick="toggleMenu('manageMenu')">
@@ -182,6 +193,7 @@
         <li><strong>System → Tenants</strong> - View and manage tenant information</li>
         <li><strong>System → User Tracking</strong> - View user activity tracking data</li>
         <li><strong>System → Logs</strong> - View system logs and errors</li>
+        <li><strong>System → Roles</strong> - View roles, workflows, and user assignments</li>
         <li><strong>Manage → Workflows</strong> - View workflows for selected tenant</li>
       </ul>
     </div>
@@ -275,6 +287,60 @@
     <div class="results">
       <h3>System Logs</h3>
       <div id="logsResults">Loading logs...</div>
+    </div>
+  </div>
+
+  <div id="rolesPage" class="page">
+    <div class="query-section">
+      <h3>System - Roles</h3>
+      <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+        <div>
+          <label style="font-weight: bold; display: block;">Tenant</label>
+          <select id="rolesTenantFilter" multiple style="width: 120px; height: 80px;">
+            <option value="">Loading tenants...</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight: bold; display: block;">Role</label>
+          <select id="rolesRoleFilter" multiple style="width: 120px; height: 80px;">
+            <option value="">Loading roles...</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight: bold; display: block;">Module</label>
+          <select id="rolesModuleFilter" multiple style="width: 120px; height: 80px;">
+            <option value="">Loading modules...</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight: bold; display: block;">Function</label>
+          <select id="rolesFunctionFilter" multiple style="width: 120px; height: 80px;">
+            <option value="">Loading functions...</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight: bold; display: block;">Workflow</label>
+          <select id="rolesWorkflowFilter" multiple style="width: 120px; height: 80px;">
+            <option value="">Loading workflows...</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-weight: bold; display: block;">Last Name</label>
+          <select id="rolesLastNameFilter" multiple style="width: 120px; height: 80px;">
+            <option value="">Loading names...</option>
+          </select>
+        </div>
+        <div style="align-self: flex-end;">
+          <button onclick="loadRoles(1)">Apply Filters</button>
+          <button onclick="clearRolesFilters()">Clear</button>
+        </div>
+      </div>
+      <div id="rolesPagination" style="margin-bottom: 10px;"></div>
+    </div>
+    
+    <div class="results">
+      <h3>Roles, Workflows & User Assignments</h3>
+      <div id="rolesResults">Loading roles...</div>
     </div>
   </div>
     </div>
@@ -838,7 +904,7 @@
              SELECT ROW_NUMBER() OVER (ORDER BY ${trackingSortField} ${trackingSortOrder}) as RowNum,
                     sm.name as [Module], sf.Name as [Function], t.name as [Tenant],
                     a.AccountId as [Account], p.FirstName + ' ' + p.LastName as [User],
-                    sut.[Path], sut.CreatedDate
+                    sut.[Path], sut.[Data], sut.CreatedDate
              FROM SystemUserTrackings sut
              INNER JOIN People p ON p.applicationuserid = sut.Createdbyid
              INNER JOIN Accounts a ON a.id = p.AccountId
@@ -877,7 +943,9 @@
       if (!data || data.length === 0) return '';
       
       const headers = Object.keys(data[0]);
-      let tableClass = tableType === 'logs' ? 'logs-table' : '';
+      let tableClass = '';
+      if (tableType === 'logs') tableClass = 'logs-table';
+      if (tableType === 'tracking') tableClass = 'tracking-table';
       let html = `<table class="${tableClass}"><thead><tr>`;
       
       headers.forEach(header => {
@@ -885,6 +953,10 @@
         if (tableType === 'logs') {
           if (header === 'Description') colClass = 'description-col';
           if (header === 'Summary') colClass = 'summary-col';
+        }
+        if (tableType === 'tracking') {
+          if (header === 'Data') colClass = 'data-col';
+          if (header === 'Path') colClass = 'path-col';
         }
         html += `<th class="${colClass}" style="cursor: pointer;" onclick="sortTable('${header}', '${tableType}')">${header} ↕</th>`;
       });
@@ -897,6 +969,10 @@
           if (tableType === 'logs') {
             if (header === 'Description') colClass = 'description-col';
             if (header === 'Summary') colClass = 'summary-col';
+          }
+          if (tableType === 'tracking') {
+            if (header === 'Data') colClass = 'data-col';
+            if (header === 'Path') colClass = 'path-col';
           }
           const value = row[header] !== null ? row[header] : 'NULL';
           html += `<td class="${colClass}" title="${value}">${value}</td>`;
@@ -1323,6 +1399,163 @@
         logsSortOrder = (logsSortField === field && logsSortOrder === 'ASC') ? 'DESC' : 'ASC';
         logsSortField = field;
         loadLogs(currentLogsPage);
+      }
+    }
+    
+    function showRolesPage() {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('rolesPage').classList.add('active');
+      closeAllMenus();
+      loadRolesFilterOptions();
+      loadRoles(1);
+    }
+    
+    async function loadRolesFilterOptions() {
+      try {
+        // Load tenants
+        const tenants = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Tenant FROM [System_Roles_Workflows_View] WHERE Tenant IS NOT NULL ORDER BY Tenant');
+        populateSelect('rolesTenantFilter', tenants.data, 'Tenant');
+        
+        // Load roles
+        const roles = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Role FROM [System_Roles_Workflows_View] WHERE Role IS NOT NULL ORDER BY Role');
+        populateSelect('rolesRoleFilter', roles.data, 'Role');
+        
+        // Load modules
+        const modules = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Module FROM [System_Roles_Workflows_View] WHERE Module IS NOT NULL ORDER BY Module');
+        populateSelect('rolesModuleFilter', modules.data, 'Module');
+        
+        // Load functions
+        const functions = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT [Function] FROM [System_Roles_Workflows_View] WHERE [Function] IS NOT NULL ORDER BY [Function]');
+        populateSelect('rolesFunctionFilter', functions.data, 'Function');
+        
+        // Load workflows
+        const workflows = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Workflow FROM [System_Roles_Workflows_View] WHERE Workflow IS NOT NULL ORDER BY Workflow');
+        populateSelect('rolesWorkflowFilter', workflows.data, 'Workflow');
+        
+        // Load last names
+        const lastNames = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT LastName FROM [System_Roles_Workflows_View] WHERE LastName IS NOT NULL ORDER BY LastName');
+        populateSelect('rolesLastNameFilter', lastNames.data, 'LastName');
+      } catch (error) {
+        console.error('Failed to load roles filter options:', error);
+      }
+    }
+    
+    let currentRolesPage = 1;
+    let rolesSortField = 'Tenant';
+    let rolesSortOrder = 'ASC';
+    
+    async function loadRoles(page = 1) {
+      currentRolesPage = page;
+      const resultsDiv = document.getElementById('rolesResults');
+      const paginationDiv = document.getElementById('rolesPagination');
+      
+      const tenantFilter = getSelectedValues('rolesTenantFilter');
+      const roleFilter = getSelectedValues('rolesRoleFilter');
+      const moduleFilter = getSelectedValues('rolesModuleFilter');
+      const functionFilter = getSelectedValues('rolesFunctionFilter');
+      const workflowFilter = getSelectedValues('rolesWorkflowFilter');
+      const lastNameFilter = getSelectedValues('rolesLastNameFilter');
+      
+      let whereClause = 'WHERE 1=1';
+      if (tenantFilter.length > 0) {
+        const tenantList = tenantFilter.map(t => `'${t}'`).join(',');
+        whereClause += ` AND Tenant IN (${tenantList})`;
+      }
+      if (roleFilter.length > 0) {
+        const roleList = roleFilter.map(r => `'${r}'`).join(',');
+        whereClause += ` AND Role IN (${roleList})`;
+      }
+      if (moduleFilter.length > 0) {
+        const moduleList = moduleFilter.map(m => `'${m}'`).join(',');
+        whereClause += ` AND Module IN (${moduleList})`;
+      }
+      if (functionFilter.length > 0) {
+        const functionList = functionFilter.map(f => `'${f}'`).join(',');
+        whereClause += ` AND [Function] IN (${functionList})`;
+      }
+      if (workflowFilter.length > 0) {
+        const workflowList = workflowFilter.map(w => `'${w}'`).join(',');
+        whereClause += ` AND Workflow IN (${workflowList})`;
+      }
+      if (lastNameFilter.length > 0) {
+        const lastNameList = lastNameFilter.map(l => `'${l}'`).join(',');
+        whereClause += ` AND LastName IN (${lastNameList})`;
+      }
+      
+      const offset = (page - 1) * 100;
+      
+      resultsDiv.innerHTML = 'Loading roles...';
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT TOP 100 * FROM (
+             SELECT ROW_NUMBER() OVER (ORDER BY ${rolesSortField} ${rolesSortOrder}) as RowNum,
+                    TenantId, Tenant, Role, Activity, Module, [Function], 
+                    WorkflowId, Workflow, PersonId, FirstName, LastName
+             FROM [System_Roles_Workflows_View]
+             ${whereClause}
+           ) AS NumberedResults
+           WHERE RowNum > ${offset}
+           ORDER BY RowNum`);
+        
+        if (result.success) {
+          if (result.data && result.data.length > 0) {
+            const table = createSortableTable(result.data, 'roles');
+            resultsDiv.innerHTML = table;
+            
+            // Update pagination
+            const hasMore = result.data.length === 100;
+            updateRolesPagination(page, hasMore);
+          } else {
+            resultsDiv.innerHTML = '<p>No roles found.</p>';
+            paginationDiv.innerHTML = '';
+          }
+        } else {
+          resultsDiv.innerHTML = `<div class="error">Failed to load roles: ${result.error}</div>`;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+    
+    function updateRolesPagination(currentPage, hasMore) {
+      const paginationDiv = document.getElementById('rolesPagination');
+      let html = `Page ${currentPage} `;
+      
+      if (currentPage > 1) {
+        html += `<button onclick="loadRoles(${currentPage - 1})">Previous</button> `;
+      }
+      
+      if (hasMore) {
+        html += `<button onclick="loadRoles(${currentPage + 1})">Next</button>`;
+      }
+      
+      paginationDiv.innerHTML = html;
+    }
+    
+    function clearRolesFilters() {
+      document.getElementById('rolesTenantFilter').selectedIndex = -1;
+      document.getElementById('rolesRoleFilter').selectedIndex = -1;
+      document.getElementById('rolesModuleFilter').selectedIndex = -1;
+      document.getElementById('rolesFunctionFilter').selectedIndex = -1;
+      document.getElementById('rolesWorkflowFilter').selectedIndex = -1;
+      document.getElementById('rolesLastNameFilter').selectedIndex = -1;
+      loadRoles(1);
+    }
+    
+    function sortTable(field, tableType) {
+      if (tableType === 'tracking') {
+        trackingSortOrder = (trackingSortField === field && trackingSortOrder === 'ASC') ? 'DESC' : 'ASC';
+        trackingSortField = field;
+        loadUserTracking(currentTrackingPage);
+      } else if (tableType === 'logs') {
+        logsSortOrder = (logsSortField === field && logsSortOrder === 'ASC') ? 'DESC' : 'ASC';
+        logsSortField = field;
+        loadLogs(currentLogsPage);
+      } else if (tableType === 'roles') {
+        rolesSortOrder = (rolesSortField === field && rolesSortOrder === 'ASC') ? 'DESC' : 'ASC';
+        rolesSortField = field;
+        loadRoles(currentRolesPage);
       }
     }
   </script>
