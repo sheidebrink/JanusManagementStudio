@@ -469,7 +469,7 @@
           <button onclick="loadPerformanceCharts()">Refresh</button>
         </div>
         <div style="width: 100%; position: relative; margin-bottom: 30px;">
-          <h4>Notes Per Day</h4>
+          <h4>Emails Per Day</h4>
           <canvas id="notesPerDayChart" width="1000" height="400"></canvas>
           <div id="notesLoading" class="chart-loading" style="display: none;">
             <div class="spinner"></div>
@@ -1765,8 +1765,8 @@
                     e.CreatedDate, e.UpdatedDate, count(wtn.WorkflowTaskId) as NotesCount, e.Id
              FROM workflows w
              INNER JOIN WorkflowActivities wa ON wa.WorkflowId = w.Id
-             INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id
-             INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId
+             INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id AND wt.IsDeleted = 0
+             INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId AND e.IsDeleted = 0
              INNER JOIN SystemValues sv ON sv.id = wa.ActivityTypeValueId
              LEFT OUTER JOIN WorkflowTaskNotes wtn ON wtn.WorkflowTaskId = wt.Id
              WHERE w.id = ${workflowId}
@@ -1845,8 +1845,8 @@
           `SELECT COUNT(*) as TaskCount
            FROM workflows w
            INNER JOIN WorkflowActivities wa ON wa.WorkflowId = w.Id
-           INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id
-           INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId
+           INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id AND wt.IsDeleted = 0
+           INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId AND e.IsDeleted = 0
            WHERE w.id = ${workflowId}`);
         
         if (result.success && result.data && result.data.length > 0) {
@@ -1910,10 +1910,10 @@
           `SELECT CAST(n.CreatedDate AS DATE) as NoteDate, COUNT(*) as NoteCount
            FROM workflows w WITH (NOLOCK)
            INNER JOIN WorkflowActivities wa WITH (NOLOCK) ON wa.WorkflowId = w.Id
-           INNER JOIN WorkflowTasks wt WITH (NOLOCK) ON wt.WorkflowActivityId = wa.Id
-           INNER JOIN Emails e WITH (NOLOCK) ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId
+           INNER JOIN WorkflowTasks wt WITH (NOLOCK) ON wt.WorkflowActivityId = wa.Id AND wt.IsDeleted = 0
+           INNER JOIN Emails e WITH (NOLOCK) ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId AND e.IsDeleted = 0
            INNER JOIN WorkflowTaskNotes wtn WITH (NOLOCK) ON wtn.WorkflowTaskId = wt.Id
-           INNER JOIN Notes n WITH (NOLOCK) ON n.id = wtn.NoteId
+           INNER JOIN Notes n WITH (NOLOCK) ON n.id = wtn.NoteId AND n.IsDeleted = 0
            WHERE w.id = ${currentWorkflowId} AND n.CreatedDate IS NOT NULL ${dateFilter}
            GROUP BY CAST(n.CreatedDate AS DATE)
            ORDER BY NoteDate`);
@@ -1930,10 +1930,10 @@
           `SELECT sv2.Name as MailAction, COUNT(*) as ActionCount
            FROM workflows w WITH (NOLOCK)
            INNER JOIN WorkflowActivities wa WITH (NOLOCK) ON wa.WorkflowId = w.Id
-           INNER JOIN WorkflowTasks wt WITH (NOLOCK) ON wt.WorkflowActivityId = wa.Id
-           INNER JOIN Emails e WITH (NOLOCK) ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId
+           INNER JOIN WorkflowTasks wt WITH (NOLOCK) ON wt.WorkflowActivityId = wa.Id AND wt.IsDeleted = 0
+           INNER JOIN Emails e WITH (NOLOCK) ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId AND e.IsDeleted = 0
            INNER JOIN WorkflowTaskNotes wtn WITH (NOLOCK) ON wtn.WorkflowTaskId = wt.Id
-           INNER JOIN Notes n WITH (NOLOCK) ON n.id = wtn.NoteId
+           INNER JOIN Notes n WITH (NOLOCK) ON n.id = wtn.NoteId AND n.IsDeleted = 0
            INNER JOIN SystemValues sv2 WITH (NOLOCK) ON sv2.id = n.MailActionTypeValueId
            WHERE w.id = ${currentWorkflowId} AND sv2.Name IS NOT NULL ${dateFilter}
            GROUP BY sv2.Name
@@ -1950,10 +1950,10 @@
                   AVG(DATEDIFF(HOUR, e.CreatedDate, n.CreatedDate)) as AvgTimeToReplyHours
            FROM workflows w WITH (NOLOCK)
            INNER JOIN WorkflowActivities wa WITH (NOLOCK) ON wa.WorkflowId = w.Id
-           INNER JOIN WorkflowTasks wt WITH (NOLOCK) ON wt.WorkflowActivityId = wa.Id
-           INNER JOIN Emails e WITH (NOLOCK) ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId
+           INNER JOIN WorkflowTasks wt WITH (NOLOCK) ON wt.WorkflowActivityId = wa.Id AND wt.IsDeleted = 0
+           INNER JOIN Emails e WITH (NOLOCK) ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId AND e.IsDeleted = 0
            INNER JOIN WorkflowTaskNotes wtn WITH (NOLOCK) ON wtn.WorkflowTaskId = wt.Id
-           INNER JOIN Notes n WITH (NOLOCK) ON n.id = wtn.NoteId
+           INNER JOIN Notes n WITH (NOLOCK) ON n.id = wtn.NoteId AND n.IsDeleted = 0
            INNER JOIN SystemValues sv2 WITH (NOLOCK) ON sv2.id = n.MailActionTypeValueId AND sv2.Id IN ('B2C3D4E5-F6A1-4B2C-8D9E-2345678901B2','C3D4E5F6-A1B2-4C3D-9E8F-3456789012C3')
            WHERE w.id = ${currentWorkflowId} 
            AND n.CreatedDate IS NOT NULL AND e.CreatedDate IS NOT NULL 
@@ -2020,11 +2020,11 @@
       
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      if (!data || data.length === 0) {
+      if (!data || data.length === 0 || data.every(item => item.NoteCount === 0)) {
         ctx.fillStyle = 'black';
         ctx.font = '16px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('No data available', canvas.width / 2, canvas.height / 2);
+        ctx.fillText('No data found', canvas.width / 2, canvas.height / 2);
         return;
       }
       
@@ -2067,7 +2067,7 @@
         ctx.fillStyle = 'black';
         ctx.font = '16px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('No data available', canvas.width / 2, canvas.height / 2);
+        ctx.fillText('No data found', canvas.width / 2, canvas.height / 2);
         return;
       }
       
@@ -2110,11 +2110,11 @@
       
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      if (!data || data.length === 0) {
+      if (!data || data.length === 0 || data.every(item => (item.AvgTimeToReplyHours || 0) === 0)) {
         ctx.fillStyle = 'black';
         ctx.font = '16px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('No data available', canvas.width / 2, canvas.height / 2);
+        ctx.fillText('No data found', canvas.width / 2, canvas.height / 2);
         return;
       }
       
