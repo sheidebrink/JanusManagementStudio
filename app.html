@@ -1020,7 +1020,13 @@
     function createSortableTable(data, tableType) {
       if (!data || data.length === 0) return '';
       
-      const headers = Object.keys(data[0]);
+      let headers = Object.keys(data[0]);
+      
+      // Hide specific columns for workflow tasks
+      if (tableType === 'workflowTasks') {
+        headers = headers.filter(h => !['ServiceLevelAgreementTicks', 'SlaCalculationDate', 'SlaSeconds', 'CreatedDate'].includes(h));
+      }
+      
       let tableClass = '';
       if (tableType === 'logs') tableClass = 'logs-table';
       if (tableType === 'tracking') tableClass = 'tracking-table';
@@ -1687,13 +1693,17 @@
                     wt.Sentiment, wt.SlaCalculationDate, wt.SlaSeconds,
                     e.Subject, e.[From], 
                     CASE WHEN e.IsHighImportance = 1 THEN 'Yes' ELSE 'No' END as IsHighImportance,
-                    e.CreatedDate, e.UpdatedDate
+                    e.CreatedDate, e.UpdatedDate, count(wtn.WorkflowTaskId) as NotesCount
              FROM workflows w
              INNER JOIN WorkflowActivities wa ON wa.WorkflowId = w.Id
              INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id
              INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId
              INNER JOIN SystemValues sv ON sv.id = wa.ActivityTypeValueId
+             LEFT OUTER JOIN WorkflowTaskNotes wtn ON wtn.WorkflowTaskId = wt.Id
              WHERE w.id = ${workflowId}
+             GROUP BY wa.Name, wa.ServiceLevelAgreementTicks, sv.Name, wt.Sentiment, 
+                      wt.SlaCalculationDate, wt.SlaSeconds, e.Subject, e.[From], 
+                      e.IsHighImportance, e.CreatedDate, e.UpdatedDate
            ) AS NumberedResults
            WHERE RowNum > ${offset}
            ORDER BY RowNum`);
