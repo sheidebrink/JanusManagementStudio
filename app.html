@@ -672,7 +672,6 @@
           `SELECT wa.Id, wa.Name, sv.Name as ActivityType, wa.Position,
                   wa.ServiceLevelAgreementTicks,
                   CASE WHEN wa.RequireSubcategoryWhenCategorySelected = 1 THEN 'Yes' ELSE 'No' END as RequireSubcategory,
-                  CASE WHEN wa.IsReopenReplyRequired = 1 THEN 'Yes' ELSE 'No' END as ReopenReplyRequired,
                   wa.CreatedById, wa.CreatedDate, wa.UpdatedById, wa.UpdatedDate
            FROM WorkflowActivities wa
            LEFT JOIN SystemValues sv ON wa.ActivityTypeValueId = sv.Id
@@ -703,7 +702,7 @@
         html += `<div style="margin-bottom: 20px; border: 1px solid #ddd; padding: 15px; border-radius: 5px;">`;
         html += `<h5>Activity: ${activity.Name} (Position: ${activity.Position})</h5>`;
         html += `<p><strong>Type:</strong> ${activity.ActivityType || 'Unknown'} | <strong>SLA Ticks:</strong> ${activity.ServiceLevelAgreementTicks || 'None'}</p>`;
-        html += `<p><strong>Require Subcategory:</strong> ${activity.RequireSubcategory} | <strong>Reopen Reply Required:</strong> ${activity.ReopenReplyRequired}</p>`;
+        html += `<p><strong>Require Subcategory:</strong> ${activity.RequireSubcategory}</p>`;
         html += `<div id="roles_${activity.Id}" style="margin-top: 10px;">Loading roles...</div>`;
         html += `<div id="actions_${activity.Id}" style="margin-top: 10px;">Loading actions...</div>`;
         html += `</div>`;
