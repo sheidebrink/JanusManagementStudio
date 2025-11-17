@@ -461,44 +461,35 @@
       
       <div id="workflowPerformanceTab" class="tab-content">
         <h4>Workflow Performance</h4>
-        <div style="margin-bottom: 20px;">
-          <label style="font-weight: bold; margin-right: 10px;">Time Period:</label>
-          <select id="performanceFilter" onchange="loadPerformanceCharts()">
-            <option value="current_month">Current Month</option>
-            <option value="last_month">Last Month</option>
-            <option value="current_year">Current Year</option>
-          </select>
+        <div style="margin-bottom: 20px; display: flex; gap: 15px; align-items: center;">
+          <label style="font-weight: bold;">From:</label>
+          <input type="date" id="performanceFromDate" onchange="loadPerformanceCharts()" style="padding: 5px;">
+          <label style="font-weight: bold;">To:</label>
+          <input type="date" id="performanceToDate" onchange="loadPerformanceCharts()" style="padding: 5px;">
+          <button onclick="loadPerformanceCharts()">Refresh</button>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; margin-bottom: 20px;">
-          <div style="width: 100%; position: relative;">
-            <h4>Notes Per Day</h4>
-            <canvas id="notesPerDayChart" width="500" height="350"></canvas>
-            <div id="notesLoading" class="chart-loading" style="display: none;">
-              <div class="spinner"></div>
-              <div style="margin-top: 10px; color: #666;">Loading...</div>
-            </div>
-          </div>
-          <div style="width: 100%; position: relative;">
-            <h4>Average Reply Time Per Day</h4>
-            <canvas id="timeToReplyChart" width="500" height="350"></canvas>
-            <div id="timeToReplyLoading" class="chart-loading" style="display: none;">
-              <div class="spinner"></div>
-              <div style="margin-top: 10px; color: #666;">Loading...</div>
-            </div>
+        <div style="width: 100%; position: relative; margin-bottom: 30px;">
+          <h4>Notes Per Day</h4>
+          <canvas id="notesPerDayChart" width="1000" height="400"></canvas>
+          <div id="notesLoading" class="chart-loading" style="display: none;">
+            <div class="spinner"></div>
+            <div style="margin-top: 10px; color: #666;">Loading...</div>
           </div>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%;">
-          <div style="width: 100%; position: relative;">
-            <h4>Mail Actions</h4>
-            <canvas id="mailActionsChart" width="500" height="300"></canvas>
-            <div id="mailActionsLoading" class="chart-loading" style="display: none;">
-              <div class="spinner"></div>
-              <div style="margin-top: 10px; color: #666;">Loading...</div>
-            </div>
+        <div style="width: 100%; position: relative; margin-bottom: 30px;">
+          <h4>Average Reply Time Per Day</h4>
+          <canvas id="timeToReplyChart" width="1000" height="400"></canvas>
+          <div id="timeToReplyLoading" class="chart-loading" style="display: none;">
+            <div class="spinner"></div>
+            <div style="margin-top: 10px; color: #666;">Loading...</div>
           </div>
-          <div style="width: 100%; position: relative;">
-            <h4>Future Chart</h4>
-            <div style="height: 300px; background: #f5f5f5; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: #999;">Chart placeholder</div>
+        </div>
+        <div style="width: 100%; position: relative; margin-bottom: 30px;">
+          <h4>Mail Actions</h4>
+          <canvas id="mailActionsChart" width="1000" height="400"></canvas>
+          <div id="mailActionsLoading" class="chart-loading" style="display: none;">
+            <div class="spinner"></div>
+            <div style="margin-top: 10px; color: #666;">Loading...</div>
           </div>
         </div>
       </div>
@@ -1843,6 +1834,7 @@
       
       // Load performance charts when performance tab is clicked
       if (tabName === 'performance') {
+        setDefaultPerformanceDates();
         loadPerformanceCharts();
       }
     }
@@ -1902,8 +1894,10 @@
     async function loadPerformanceCharts() {
       if (!currentWorkflowId) return;
       
-      const filter = document.getElementById('performanceFilter').value;
-      const dateFilter = getPerformanceDateFilter(filter);
+      const fromDate = document.getElementById('performanceFromDate').value;
+      const toDate = document.getElementById('performanceToDate').value;
+      const dateFilter = getDateRangeFilter(fromDate, toDate, 'n');
+      const emailDateFilter = getDateRangeFilter(fromDate, toDate, 'e');
       
       try {
         // Show loading animations
@@ -1925,7 +1919,8 @@
            ORDER BY NoteDate`);
         
         if (notesResult.success && notesResult.data) {
-          drawNotesPerDayChart(notesResult.data);
+          const completeNotesData = fillMissingDates(notesResult.data, fromDate, toDate, 'NoteDate', 'NoteCount');
+          drawNotesPerDayChart(completeNotesData);
         }
         document.getElementById('notesLoading').style.display = 'none';
         
@@ -1950,7 +1945,7 @@
         
         // Load time to reply per day
         const timeToReplyResult = await ipcRenderer.invoke('execute-query', 
-          `SELECT CAST(n.CreatedDate AS DATE) as ReplyDate, 
+          `SELECT CAST(e.CreatedDate AS DATE) as ReplyDate, 
                   AVG(DATEDIFF(HOUR, e.CreatedDate, n.CreatedDate)) as AvgTimeToReplyHours
            FROM workflows w WITH (NOLOCK)
            INNER JOIN WorkflowActivities wa WITH (NOLOCK) ON wa.WorkflowId = w.Id
@@ -1958,14 +1953,15 @@
            INNER JOIN Emails e WITH (NOLOCK) ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId
            INNER JOIN WorkflowTaskNotes wtn WITH (NOLOCK) ON wtn.WorkflowTaskId = wt.Id
            INNER JOIN Notes n WITH (NOLOCK) ON n.id = wtn.NoteId
-           INNER JOIN SystemValues sv2 WITH (NOLOCK) ON sv2.id = n.MailActionTypeValueId AND sv2.Name = 'REPLY'
+           INNER JOIN SystemValues sv2 WITH (NOLOCK) ON sv2.id = n.MailActionTypeValueId AND sv2.Id IN ('B2C3D4E5-F6A1-4B2C-8D9E-2345678901B2','C3D4E5F6-A1B2-4C3D-9E8F-3456789012C3')
            WHERE w.id = ${currentWorkflowId} 
-           AND n.CreatedDate IS NOT NULL AND e.CreatedDate IS NOT NULL ${dateFilter}
-           GROUP BY CAST(n.CreatedDate AS DATE)
+           AND n.CreatedDate IS NOT NULL AND e.CreatedDate IS NOT NULL ${emailDateFilter}
+           GROUP BY CAST(e.CreatedDate AS DATE)
            ORDER BY ReplyDate`);
         
         if (timeToReplyResult.success && timeToReplyResult.data) {
-          drawTimeToReplyChart(timeToReplyResult.data);
+          const completeReplyData = fillMissingDates(timeToReplyResult.data, fromDate, toDate, 'ReplyDate', 'AvgTimeToReplyHours');
+          drawTimeToReplyChart(completeReplyData);
         }
         document.getElementById('timeToReplyLoading').style.display = 'none';
         
@@ -1974,30 +1970,45 @@
       }
     }
     
-    function getPerformanceDateFilter(filter) {
+    function getDateRangeFilter(fromDate, toDate, tableAlias) {
+      if (!fromDate || !toDate) return '';
+      return ` AND ${tableAlias}.CreatedDate >= '${fromDate}' AND ${tableAlias}.CreatedDate <= '${toDate} 23:59:59'`;
+    }
+    
+    function setDefaultPerformanceDates() {
       const now = new Date();
-      let startDate, endDate;
+      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const today = new Date();
       
-      switch (filter) {
-        case 'current_month':
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-          endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-          break;
-        case 'last_month':
-          startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-          endDate = new Date(now.getFullYear(), now.getMonth(), 0);
-          break;
-        case 'current_year':
-          startDate = new Date(now.getFullYear(), 0, 1);
-          endDate = new Date(now.getFullYear(), 11, 31);
-          break;
-        default:
-          return '';
+      document.getElementById('performanceFromDate').value = firstOfMonth.toISOString().split('T')[0];
+      document.getElementById('performanceToDate').value = today.toISOString().split('T')[0];
+    }
+    
+    function fillMissingDates(data, fromDate, toDate, dateField, countField) {
+      if (!fromDate || !toDate || !data) return data;
+      
+      const result = [];
+      const start = new Date(fromDate);
+      const end = new Date(toDate);
+      
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+        const existing = data.find(item => {
+          const itemDate = new Date(item[dateField]).toISOString().split('T')[0];
+          return itemDate === dateStr;
+        });
+        
+        if (existing) {
+          result.push(existing);
+        } else {
+          const emptyItem = {};
+          emptyItem[dateField] = dateStr;
+          emptyItem[countField] = 0;
+          result.push(emptyItem);
+        }
       }
       
-      const start = startDate.toISOString().split('T')[0];
-      const end = endDate.toISOString().split('T')[0];
-      return ` AND n.CreatedDate >= '${start}' AND n.CreatedDate <= '${end} 23:59:59'`;
+      return result;
     }
     
     function drawNotesPerDayChart(data) {
@@ -2015,15 +2026,15 @@
       }
       
       const maxCount = Math.max(...data.map(item => item.NoteCount));
-      const barWidth = (canvas.width - 120) / data.length;
-      const maxBarHeight = canvas.height - 150;
+      const barWidth = (canvas.width - 200) / data.length;
+      const maxBarHeight = canvas.height - 180;
       
       const colors = ['#36A2EB', '#4BC0C0', '#FFCE56', '#FF6384', '#9966FF'];
       
       data.forEach((item, index) => {
         const barHeight = (item.NoteCount / maxCount) * maxBarHeight;
-        const x = 60 + index * barWidth;
-        const y = canvas.height - 130 - barHeight;
+        const x = 100 + index * barWidth;
+        const y = canvas.height - 160 - barHeight;
         
         ctx.fillStyle = colors[index % colors.length];
         ctx.fillRect(x, y, barWidth - 5, barHeight);
@@ -2035,7 +2046,7 @@
         
         const date = new Date(item.NoteDate).toLocaleDateString();
         ctx.save();
-        ctx.translate(x + barWidth/2, canvas.height - 40);
+        ctx.translate(x + barWidth/2, canvas.height - 80);
         ctx.rotate(-Math.PI/4);
         ctx.textAlign = 'right';
         ctx.fillText(date, 0, 0);
@@ -2105,16 +2116,16 @@
       }
       
       const maxHours = Math.max(...data.map(item => item.AvgTimeToReplyHours || 0));
-      const barWidth = (canvas.width - 120) / data.length;
-      const maxBarHeight = canvas.height - 150;
+      const barWidth = (canvas.width - 200) / data.length;
+      const maxBarHeight = canvas.height - 180;
       
       const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'];
       
       data.forEach((item, index) => {
         const hours = item.AvgTimeToReplyHours || 0;
         const barHeight = maxHours > 0 ? (hours / maxHours) * maxBarHeight : 0;
-        const x = 60 + index * barWidth;
-        const y = canvas.height - 130 - barHeight;
+        const x = 100 + index * barWidth;
+        const y = canvas.height - 160 - barHeight;
         
         ctx.fillStyle = colors[index % colors.length];
         ctx.fillRect(x, y, barWidth - 5, barHeight);
@@ -2127,7 +2138,7 @@
         
         const date = new Date(item.ReplyDate).toLocaleDateString();
         ctx.save();
-        ctx.translate(x + barWidth/2, canvas.height - 40);
+        ctx.translate(x + barWidth/2, canvas.height - 80);
         ctx.rotate(-Math.PI/4);
         ctx.textAlign = 'right';
         ctx.fillText(date, 0, 0);
