@@ -29,6 +29,16 @@ function createWindow() {
 
   mainWindow.loadFile('login.html');
   
+  // Add keyboard shortcut for developer tools
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+      mainWindow.webContents.toggleDevTools();
+    }
+    if (input.key === 'F12') {
+      mainWindow.webContents.toggleDevTools();
+    }
+  });
+  
   mainWindow.on('moved', saveWindowState);
   mainWindow.on('resized', saveWindowState);
 }
@@ -101,7 +111,8 @@ ipcMain.handle('connect-database', async (event, config) => {
       options: {
         encrypt: config.encrypt || false,
         trustServerCertificate: true
-      }
+      },
+      requestTimeout: 60000
     });
     
     currentDatabase = `${config.server}\\${config.database}`;
@@ -134,9 +145,17 @@ ipcMain.handle('execute-query', async (event, query) => {
       throw new Error('No database connection');
     }
     
+    console.log('\n=== SQL QUERY ===');
+    console.log(query);
+    console.log('================\n');
+    
     const result = await dbConnection.request().query(query);
     return { success: true, data: result.recordset };
   } catch (error) {
+    console.log('\n=== SQL ERROR ===');
+    console.log('Query:', query);
+    console.log('Error:', error.message);
+    console.log('=================\n');
     return { success: false, error: error.message };
   }
 });
@@ -188,4 +207,9 @@ ipcMain.handle('clear-credentials', () => {
   } catch (error) {
     return { success: false, error: error.message };
   }
+});
+
+// Toggle developer tools
+ipcMain.handle('toggle-dev-tools', () => {
+  mainWindow.webContents.toggleDevTools();
 });
