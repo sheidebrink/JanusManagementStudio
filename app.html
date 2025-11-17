@@ -412,6 +412,7 @@
         <button class="tab-button active" onclick="showWorkflowTab('details')">Details</button>
         <button class="tab-button" onclick="showWorkflowTab('activities')">Activities</button>
         <button class="tab-button" id="tasksTabBtn" onclick="showWorkflowTab('tasks')">Tasks</button>
+        <button class="tab-button" onclick="showWorkflowTab('performance')">Performance</button>
       </div>
       
       <div id="workflowDetailsTab" class="tab-content active">
@@ -428,6 +429,28 @@
         <h4>Workflow Tasks</h4>
         <div id="workflowTasksPagination" style="margin-bottom: 10px;"></div>
         <div id="workflowTasks">Click to load tasks...</div>
+      </div>
+      
+      <div id="workflowPerformanceTab" class="tab-content">
+        <h4>Workflow Performance</h4>
+        <div style="margin-bottom: 20px;">
+          <label style="font-weight: bold; margin-right: 10px;">Time Period:</label>
+          <select id="performanceFilter" onchange="loadPerformanceCharts()">
+            <option value="current_month">Current Month</option>
+            <option value="last_month">Last Month</option>
+            <option value="current_year">Current Year</option>
+          </select>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%;">
+          <div style="width: 100%; position: relative;">
+            <h4>Notes Per Day</h4>
+            <canvas id="notesPerDayChart" width="500" height="300"></canvas>
+          </div>
+          <div style="width: 100%; position: relative;">
+            <h4>Mail Actions</h4>
+            <canvas id="mailActionsChart" width="500" height="300"></canvas>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1024,7 +1047,7 @@
       
       // Hide specific columns for workflow tasks
       if (tableType === 'workflowTasks') {
-        headers = headers.filter(h => !['ServiceLevelAgreementTicks', 'SlaCalculationDate', 'SlaSeconds', 'CreatedDate'].includes(h));
+        headers = headers.filter(h => !['ServiceLevelAgreementTicks', 'SlaCalculationDate', 'SlaSeconds', 'CreatedDate', 'Id'].includes(h));
       }
       
       let tableClass = '';
@@ -1693,7 +1716,7 @@
                     wt.Sentiment, wt.SlaCalculationDate, wt.SlaSeconds,
                     e.Subject, e.[From], 
                     CASE WHEN e.IsHighImportance = 1 THEN 'Yes' ELSE 'No' END as IsHighImportance,
-                    e.CreatedDate, e.UpdatedDate, count(wtn.WorkflowTaskId) as NotesCount
+                    e.CreatedDate, e.UpdatedDate, count(wtn.WorkflowTaskId) as NotesCount, e.Id
              FROM workflows w
              INNER JOIN WorkflowActivities wa ON wa.WorkflowId = w.Id
              INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id
@@ -1703,7 +1726,7 @@
              WHERE w.id = ${workflowId}
              GROUP BY wa.Name, wa.ServiceLevelAgreementTicks, sv.Name, wt.Sentiment, 
                       wt.SlaCalculationDate, wt.SlaSeconds, e.Subject, e.[From], 
-                      e.IsHighImportance, e.CreatedDate, e.UpdatedDate
+                      e.IsHighImportance, e.CreatedDate, e.UpdatedDate, e.Id
            ) AS NumberedResults
            WHERE RowNum > ${offset}
            ORDER BY RowNum`);
@@ -1762,6 +1785,11 @@
           document.getElementById('workflowTasks').innerHTML = 'No workflow selected';
         }
       }
+      
+      // Load performance charts when performance tab is clicked
+      if (tabName === 'performance') {
+        loadPerformanceCharts();
+      }
     }
     
     async function loadTasksCount(workflowId) {
@@ -1814,6 +1842,169 @@
       
       html += '</div>';
       return html;
+    }
+    
+    async function loadPerformanceCharts() {
+      if (!currentWorkflowId) return;
+      
+      const filter = document.getElementById('performanceFilter').value;
+      const dateFilter = getPerformanceDateFilter(filter);
+      
+      try {
+        // Load notes per day
+        const notesResult = await ipcRenderer.invoke('execute-query', 
+          `SELECT CAST(n.CreatedDate AS DATE) as NoteDate, COUNT(*) as NoteCount
+           FROM workflows w
+           INNER JOIN WorkflowActivities wa ON wa.WorkflowId = w.Id
+           INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id
+           INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId
+           LEFT OUTER JOIN WorkflowTaskNotes wtn ON wtn.WorkflowTaskId = wt.Id
+           LEFT OUTER JOIN Notes n ON n.id = wtn.NoteId
+           WHERE w.id = ${currentWorkflowId} AND n.CreatedDate IS NOT NULL ${dateFilter}
+           GROUP BY CAST(n.CreatedDate AS DATE)
+           ORDER BY NoteDate`);
+        
+        if (notesResult.success && notesResult.data) {
+          drawNotesPerDayChart(notesResult.data);
+        }
+        
+        // Load mail actions
+        const actionsResult = await ipcRenderer.invoke('execute-query', 
+          `SELECT sv2.Name as MailAction, COUNT(*) as ActionCount
+           FROM workflows w
+           INNER JOIN WorkflowActivities wa ON wa.WorkflowId = w.Id
+           INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id
+           INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId
+           LEFT OUTER JOIN WorkflowTaskNotes wtn ON wtn.WorkflowTaskId = wt.Id
+           LEFT OUTER JOIN Notes n ON n.id = wtn.NoteId
+           LEFT OUTER JOIN SystemValues sv2 ON sv2.id = n.MailActionTypeValueId
+           WHERE w.id = ${currentWorkflowId} AND sv2.Name IS NOT NULL ${dateFilter}
+           GROUP BY sv2.Name
+           ORDER BY ActionCount DESC`);
+        
+        if (actionsResult.success && actionsResult.data) {
+          drawMailActionsChart(actionsResult.data);
+        }
+        
+      } catch (error) {
+        console.error('Failed to load performance charts:', error);
+      }
+    }
+    
+    function getPerformanceDateFilter(filter) {
+      const now = new Date();
+      let startDate, endDate;
+      
+      switch (filter) {
+        case 'current_month':
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+          break;
+        case 'last_month':
+          startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+          break;
+        case 'current_year':
+          startDate = new Date(now.getFullYear(), 0, 1);
+          endDate = new Date(now.getFullYear(), 11, 31);
+          break;
+        default:
+          return '';
+      }
+      
+      const start = startDate.toISOString().split('T')[0];
+      const end = endDate.toISOString().split('T')[0];
+      return ` AND n.CreatedDate >= '${start}' AND n.CreatedDate <= '${end} 23:59:59'`;
+    }
+    
+    function drawNotesPerDayChart(data) {
+      const canvas = document.getElementById('notesPerDayChart');
+      const ctx = canvas.getContext('2d');
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      if (!data || data.length === 0) {
+        ctx.fillStyle = 'black';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('No data available', canvas.width / 2, canvas.height / 2);
+        return;
+      }
+      
+      const maxCount = Math.max(...data.map(item => item.NoteCount));
+      const barWidth = (canvas.width - 120) / data.length;
+      const maxBarHeight = canvas.height - 120;
+      
+      const colors = ['#36A2EB', '#4BC0C0', '#FFCE56', '#FF6384', '#9966FF'];
+      
+      data.forEach((item, index) => {
+        const barHeight = (item.NoteCount / maxCount) * maxBarHeight;
+        const x = 60 + index * barWidth;
+        const y = canvas.height - 100 - barHeight;
+        
+        ctx.fillStyle = colors[index % colors.length];
+        ctx.fillRect(x, y, barWidth - 5, barHeight);
+        
+        ctx.fillStyle = 'black';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(item.NoteCount, x + barWidth/2, y - 5);
+        
+        const date = new Date(item.NoteDate).toLocaleDateString();
+        ctx.save();
+        ctx.translate(x + barWidth/2, canvas.height - 10);
+        ctx.rotate(-Math.PI/4);
+        ctx.textAlign = 'right';
+        ctx.fillText(date, 0, 0);
+        ctx.restore();
+      });
+    }
+    
+    function drawMailActionsChart(data) {
+      const canvas = document.getElementById('mailActionsChart');
+      const ctx = canvas.getContext('2d');
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      if (!data || data.length === 0) {
+        ctx.fillStyle = 'black';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('No data available', canvas.width / 2, canvas.height / 2);
+        return;
+      }
+      
+      const total = data.reduce((sum, item) => sum + item.ActionCount, 0);
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const radius = Math.min(centerX, centerY) - 40;
+      
+      let currentAngle = 0;
+      const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'];
+      
+      data.forEach((item, index) => {
+        const sliceAngle = (item.ActionCount / total) * 2 * Math.PI;
+        
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.arc(centerX, centerY, radius, currentAngle, currentAngle + sliceAngle);
+        ctx.closePath();
+        ctx.fillStyle = colors[index % colors.length];
+        ctx.fill();
+        
+        const labelAngle = currentAngle + sliceAngle / 2;
+        const labelX = centerX + Math.cos(labelAngle) * (radius * 0.7);
+        const labelY = centerY + Math.sin(labelAngle) * (radius * 0.7);
+        
+        ctx.fillStyle = 'white';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        const label = item.MailAction || 'Unknown';
+        ctx.fillText(label.length > 8 ? label.substring(0, 8) + '...' : label, labelX, labelY);
+        ctx.fillText(item.ActionCount, labelX, labelY + 12);
+        
+        currentAngle += sliceAngle;
+      });
     }
   </script>
 </body>
