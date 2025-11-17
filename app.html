@@ -153,6 +153,61 @@
       z-index: 1000;
       display: none;
     }
+    .workflow-tabs {
+      display: flex;
+      border-bottom: 1px solid #ddd;
+      margin-bottom: 20px;
+    }
+    .tab-button {
+      background: #f8f9fa;
+      border: 1px solid #ddd;
+      border-bottom: none;
+      padding: 10px 20px;
+      cursor: pointer;
+      margin-right: 2px;
+      color: #333;
+      font-weight: bold;
+    }
+    .tab-button.active {
+      background: white;
+      border-bottom: 1px solid white;
+      margin-bottom: -1px;
+      color: #667eea;
+    }
+    .tab-button:hover {
+      background: #e9ecef;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .workflow-details-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      background: white;
+      padding: 20px;
+      border-radius: 5px;
+    }
+    .detail-item {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 15px;
+    }
+    .detail-label {
+      font-weight: bold;
+      color: #555;
+      margin-bottom: 5px;
+    }
+    .detail-value {
+      color: #333;
+      padding: 8px;
+      background: #f8f9fa;
+      border-radius: 3px;
+      border: 1px solid #e9ecef;
+    }
   </style>
 </head>
 <body>
@@ -353,11 +408,27 @@
     </div>
     
     <div class="results">
-      <h4>Workflow Information</h4>
-      <div id="workflowDetails">Loading workflow details...</div>
+      <div class="workflow-tabs">
+        <button class="tab-button active" onclick="showWorkflowTab('details')">Details</button>
+        <button class="tab-button" onclick="showWorkflowTab('activities')">Activities</button>
+        <button class="tab-button" id="tasksTabBtn" onclick="showWorkflowTab('tasks')">Tasks</button>
+      </div>
       
-      <h4>Workflow Activities</h4>
-      <div id="workflowActivities">Loading activities...</div>
+      <div id="workflowDetailsTab" class="tab-content active">
+        <h4>Workflow Information</h4>
+        <div id="workflowDetails">Loading workflow details...</div>
+      </div>
+      
+      <div id="workflowActivitiesTab" class="tab-content">
+        <h4>Workflow Activities</h4>
+        <div id="workflowActivities">Loading activities...</div>
+      </div>
+      
+      <div id="workflowTasksTab" class="tab-content">
+        <h4>Workflow Tasks</h4>
+        <div id="workflowTasksPagination" style="margin-bottom: 10px;"></div>
+        <div id="workflowTasks">Click to load tasks...</div>
+      </div>
     </div>
   </div>
 
@@ -629,12 +700,20 @@
     }
     
     async function openWorkflow(workflowId, workflowName) {
+      currentWorkflowId = workflowId;
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById('workflowOpenPage').classList.add('active');
       document.getElementById('workflowTitle').textContent = `Workflow: ${workflowName}`;
       
+      // Reset to details tab
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+      document.getElementById('workflowDetailsTab').classList.add('active');
+      document.querySelector('.tab-button').classList.add('active');
+      
       await loadWorkflowDetails(workflowId);
       await loadWorkflowActivities(workflowId);
+      await loadTasksCount(workflowId);
     }
     
     async function loadWorkflowDetails(workflowId) {
@@ -653,8 +732,8 @@
            WHERE Id = ${workflowId}`);
         
         if (result.success && result.data && result.data.length > 0) {
-          const table = createTable(result.data);
-          detailsDiv.innerHTML = table;
+          const grid = createWorkflowDetailsGrid(result.data[0]);
+          detailsDiv.innerHTML = grid;
         } else {
           detailsDiv.innerHTML = '<div class="error">Workflow not found</div>';
         }
@@ -1550,13 +1629,21 @@
     }
     
     function openWorkflowFromRoles(workflowId, workflowName) {
+      currentWorkflowId = workflowId;
       // Switch to workflows page and open the specific workflow
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById('workflowOpenPage').classList.add('active');
       document.getElementById('workflowTitle').textContent = `Workflow: ${workflowName}`;
       
+      // Reset to details tab
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+      document.getElementById('workflowDetailsTab').classList.add('active');
+      document.querySelector('.tab-button').classList.add('active');
+      
       loadWorkflowDetails(workflowId);
       loadWorkflowActivities(workflowId);
+      loadTasksCount(workflowId);
     }
     
     function sortTable(field, tableType) {
@@ -1572,7 +1659,151 @@
         rolesSortOrder = (rolesSortField === field && rolesSortOrder === 'ASC') ? 'DESC' : 'ASC';
         rolesSortField = field;
         loadRoles(currentRolesPage);
+      } else if (tableType === 'workflowTasks') {
+        workflowTasksSortOrder = (workflowTasksSortField === field && workflowTasksSortOrder === 'ASC') ? 'DESC' : 'ASC';
+        workflowTasksSortField = field;
+        loadWorkflowTasks(currentWorkflowId, currentWorkflowTasksPage);
       }
+    }
+    
+    let currentWorkflowTasksPage = 1;
+    let workflowTasksSortField = 'e.CreatedDate';
+    let workflowTasksSortOrder = 'DESC';
+    let currentWorkflowId = null;
+    
+    async function loadWorkflowTasks(workflowId, page = 1) {
+      currentWorkflowTasksPage = page;
+      currentWorkflowId = workflowId;
+      const tasksDiv = document.getElementById('workflowTasks');
+      const paginationDiv = document.getElementById('workflowTasksPagination');
+      
+      const offset = (page - 1) * 100;
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT TOP 100 * FROM (
+             SELECT ROW_NUMBER() OVER (ORDER BY ${workflowTasksSortField} ${workflowTasksSortOrder}) as RowNum,
+                    wa.Name as Activity, wa.ServiceLevelAgreementTicks, sv.Name as ActivityType,
+                    wt.Sentiment, wt.SlaCalculationDate, wt.SlaSeconds,
+                    e.Subject, e.[From], 
+                    CASE WHEN e.IsHighImportance = 1 THEN 'Yes' ELSE 'No' END as IsHighImportance,
+                    e.CreatedDate, e.UpdatedDate
+             FROM workflows w
+             INNER JOIN WorkflowActivities wa ON wa.WorkflowId = w.Id
+             INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id
+             INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId
+             INNER JOIN SystemValues sv ON sv.id = wa.ActivityTypeValueId
+             WHERE w.id = ${workflowId}
+           ) AS NumberedResults
+           WHERE RowNum > ${offset}
+           ORDER BY RowNum`);
+        
+        if (result.success) {
+          if (result.data && result.data.length > 0) {
+            const table = createSortableTable(result.data, 'workflowTasks');
+            tasksDiv.innerHTML = table;
+            
+            // Update pagination
+            const hasMore = result.data.length === 100;
+            updateWorkflowTasksPagination(page, hasMore, workflowId);
+          } else {
+            tasksDiv.innerHTML = '<p>No tasks found for this workflow.</p>';
+            paginationDiv.innerHTML = '';
+          }
+        } else {
+          tasksDiv.innerHTML = `<div class="error">Failed to load tasks: ${result.error}</div>`;
+        }
+      } catch (error) {
+        tasksDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+    
+    function updateWorkflowTasksPagination(currentPage, hasMore, workflowId) {
+      const paginationDiv = document.getElementById('workflowTasksPagination');
+      let html = `Page ${currentPage} `;
+      
+      if (currentPage > 1) {
+        html += `<button onclick="loadWorkflowTasks(${workflowId}, ${currentPage - 1})">Previous</button> `;
+      }
+      
+      if (hasMore) {
+        html += `<button onclick="loadWorkflowTasks(${workflowId}, ${currentPage + 1})">Next</button>`;
+      }
+      
+      paginationDiv.innerHTML = html;
+    }
+    
+    function showWorkflowTab(tabName) {
+      // Hide all tabs
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+      
+      // Show selected tab
+      document.getElementById(`workflow${tabName.charAt(0).toUpperCase() + tabName.slice(1)}Tab`).classList.add('active');
+      event.target.classList.add('active');
+      
+      // Load tasks only when tasks tab is clicked
+      if (tabName === 'tasks') {
+        const workflowId = currentWorkflowId;
+        if (workflowId) {
+          document.getElementById('workflowTasks').innerHTML = 'Loading tasks...';
+          loadWorkflowTasks(workflowId, 1);
+        } else {
+          document.getElementById('workflowTasks').innerHTML = 'No workflow selected';
+        }
+      }
+    }
+    
+    async function loadTasksCount(workflowId) {
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT COUNT(*) as TaskCount
+           FROM workflows w
+           INNER JOIN WorkflowActivities wa ON wa.WorkflowId = w.Id
+           INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id
+           INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId
+           WHERE w.id = ${workflowId}`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+          const count = result.data[0].TaskCount;
+          document.getElementById('tasksTabBtn').textContent = `Tasks (${count})`;
+        }
+      } catch (error) {
+        console.error('Failed to load task count:', error);
+      }
+    }
+    
+    function createWorkflowDetailsGrid(data) {
+      const fields = [
+        { key: 'Id', label: 'Workflow ID' },
+        { key: 'TenantId', label: 'Tenant ID' },
+        { key: 'Name', label: 'Name' },
+        { key: 'EmailSignature', label: 'Email Signature' },
+        { key: 'EmailUserName', label: 'Email Username' },
+        { key: 'EmailMailboxOwner', label: 'Email Mailbox Owner' },
+        { key: 'SyncEnabled', label: 'Sync Enabled' },
+        { key: 'IsRouter', label: 'Is Router' },
+        { key: 'IsRoutable', label: 'Is Routable' },
+        { key: 'IsReRouteAllowed', label: 'Re-Route Allowed' },
+        { key: 'CreatedById', label: 'Created By' },
+        { key: 'CreatedDate', label: 'Created Date' },
+        { key: 'UpdatedById', label: 'Updated By' },
+        { key: 'UpdatedDate', label: 'Updated Date' }
+      ];
+      
+      let html = '<div class="workflow-details-grid">';
+      
+      fields.forEach(field => {
+        const value = data[field.key] !== null ? data[field.key] : 'NULL';
+        html += `
+          <div class="detail-item">
+            <div class="detail-label">${field.label}</div>
+            <div class="detail-value">${value}</div>
+          </div>`;
+      });
+      
+      html += '</div>';
+      return html;
     }
   </script>
 </body>
