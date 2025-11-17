@@ -1897,7 +1897,7 @@
       const fromDate = document.getElementById('performanceFromDate').value;
       const toDate = document.getElementById('performanceToDate').value;
       const dateFilter = getDateRangeFilter(fromDate, toDate, 'n');
-      const emailDateFilter = getDateRangeFilter(fromDate, toDate, 'e');
+      const emailDateFilter = getDateRangeFilter(fromDate, toDate, 'n');
       
       try {
         // Show loading animations
@@ -1920,6 +1920,7 @@
         
         if (notesResult.success && notesResult.data) {
           const completeNotesData = fillMissingDates(notesResult.data, fromDate, toDate, 'NoteDate', 'NoteCount');
+          completeNotesData.sort((a, b) => new Date(a.NoteDate) - new Date(b.NoteDate));
           drawNotesPerDayChart(completeNotesData);
         }
         document.getElementById('notesLoading').style.display = 'none';
@@ -1945,7 +1946,7 @@
         
         // Load time to reply per day
         const timeToReplyResult = await ipcRenderer.invoke('execute-query', 
-          `SELECT CAST(e.CreatedDate AS DATE) as ReplyDate, 
+          `SELECT CAST(n.CreatedDate AS DATE) as ReplyDate, 
                   AVG(DATEDIFF(HOUR, e.CreatedDate, n.CreatedDate)) as AvgTimeToReplyHours
            FROM workflows w WITH (NOLOCK)
            INNER JOIN WorkflowActivities wa WITH (NOLOCK) ON wa.WorkflowId = w.Id
@@ -1957,11 +1958,12 @@
            WHERE w.id = ${currentWorkflowId} 
            AND n.CreatedDate IS NOT NULL AND e.CreatedDate IS NOT NULL 
            AND n.SystemTypeValueId = '069CF110-D3EF-441E-AA8C-EEC2D19954DA' ${emailDateFilter}
-           GROUP BY CAST(e.CreatedDate AS DATE)
+           GROUP BY CAST(n.CreatedDate AS DATE)
            ORDER BY ReplyDate`);
         
         if (timeToReplyResult.success && timeToReplyResult.data) {
           const completeReplyData = fillMissingDates(timeToReplyResult.data, fromDate, toDate, 'ReplyDate', 'AvgTimeToReplyHours');
+          completeReplyData.sort((a, b) => new Date(a.ReplyDate) - new Date(b.ReplyDate));
           drawTimeToReplyChart(completeReplyData);
         }
         document.getElementById('timeToReplyLoading').style.display = 'none';
