@@ -1955,7 +1955,8 @@
            INNER JOIN Notes n WITH (NOLOCK) ON n.id = wtn.NoteId
            INNER JOIN SystemValues sv2 WITH (NOLOCK) ON sv2.id = n.MailActionTypeValueId AND sv2.Id IN ('B2C3D4E5-F6A1-4B2C-8D9E-2345678901B2','C3D4E5F6-A1B2-4C3D-9E8F-3456789012C3')
            WHERE w.id = ${currentWorkflowId} 
-           AND n.CreatedDate IS NOT NULL AND e.CreatedDate IS NOT NULL ${emailDateFilter}
+           AND n.CreatedDate IS NOT NULL AND e.CreatedDate IS NOT NULL 
+           AND n.SystemTypeValueId = '069CF110-D3EF-441E-AA8C-EEC2D19954DA' ${emailDateFilter}
            GROUP BY CAST(e.CreatedDate AS DATE)
            ORDER BY ReplyDate`);
         
