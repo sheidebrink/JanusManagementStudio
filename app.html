@@ -1919,7 +1919,9 @@
            ORDER BY NoteDate`);
         
         if (notesResult.success && notesResult.data) {
+          console.log('Raw notes data:', notesResult.data);
           const completeNotesData = fillMissingDates(notesResult.data, fromDate, toDate, 'NoteDate', 'NoteCount');
+          console.log('Complete notes data after fillMissingDates:', completeNotesData);
           completeNotesData.sort((a, b) => new Date(a.NoteDate) - new Date(b.NoteDate));
           drawNotesPerDayChart(completeNotesData);
         }
@@ -1962,7 +1964,10 @@
            ORDER BY ReplyDate`);
         
         if (timeToReplyResult.success && timeToReplyResult.data) {
+          console.log('Raw timeToReply data:', timeToReplyResult.data);
+          console.log('Date range:', fromDate, 'to', toDate);
           const completeReplyData = fillMissingDates(timeToReplyResult.data, fromDate, toDate, 'ReplyDate', 'AvgTimeToReplyHours');
+          console.log('Complete timeToReply data after fillMissingDates:', completeReplyData);
           completeReplyData.sort((a, b) => new Date(a.ReplyDate) - new Date(b.ReplyDate));
           drawTimeToReplyChart(completeReplyData);
         }
@@ -1988,21 +1993,24 @@
     }
     
     function fillMissingDates(data, fromDate, toDate, dateField, countField) {
-      if (!fromDate || !toDate || !data) return data;
+      if (!fromDate || !toDate) return data || [];
       
       const result = [];
-      const start = new Date(fromDate);
-      const end = new Date(toDate);
+      const start = new Date(fromDate + 'T00:00:00');
+      const end = new Date(toDate + 'T00:00:00');
       
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const dateStr = d.toISOString().split('T')[0];
-        const existing = data.find(item => {
+        const existing = data && data.find(item => {
           const itemDate = new Date(item[dateField]).toISOString().split('T')[0];
           return itemDate === dateStr;
         });
         
         if (existing) {
-          result.push(existing);
+          // Ensure consistent date format as string
+          const normalizedItem = { ...existing };
+          normalizedItem[dateField] = dateStr;
+          result.push(normalizedItem);
         } else {
           const emptyItem = {};
           emptyItem[dateField] = dateStr;
@@ -2052,6 +2060,8 @@
         ctx.translate(x + barWidth/2, canvas.height - 80);
         ctx.rotate(-Math.PI/4);
         ctx.textAlign = 'right';
+        ctx.fillStyle = 'black';
+        ctx.font = 'bold 12px Arial';
         ctx.fillText(date, 0, 0);
         ctx.restore();
       });
@@ -2144,6 +2154,8 @@
         ctx.translate(x + barWidth/2, canvas.height - 80);
         ctx.rotate(-Math.PI/4);
         ctx.textAlign = 'right';
+        ctx.fillStyle = 'black';
+        ctx.font = 'bold 12px Arial';
         ctx.fillText(date, 0, 0);
         ctx.restore();
       });
