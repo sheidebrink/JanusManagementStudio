@@ -455,6 +455,16 @@
       
       <div id="workflowTasksTab" class="tab-content">
         <h4>Workflow Tasks</h4>
+        <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+          <input type="date" id="tasksFromDate" style="width: 150px;" placeholder="From Date">
+          <input type="date" id="tasksThruDate" style="width: 150px;" placeholder="Thru Date">
+          <select id="activityFilter" style="width: 150px;">
+            <option value="">All Activities</option>
+          </select>
+          <input type="number" id="notesCountFilter" style="width: 100px;" placeholder="Notes > X" min="0">
+          <button onclick="loadWorkflowTasks(currentWorkflowId, 1)">Apply Filters</button>
+          <button onclick="clearTasksFilters()">Clear</button>
+        </div>
         <div id="workflowTasksPagination" style="margin-bottom: 10px;"></div>
         <div id="workflowTasks">Click to load tasks...</div>
       </div>
@@ -1130,6 +1140,12 @@
           
           let value = row[header] !== null ? row[header] : 'NULL';
           
+          // Format UpdatedDate for workflow tasks
+          if (tableType === 'workflowTasks' && header === 'UpdatedDate' && value !== 'NULL' && value !== null) {
+            const date = new Date(value);
+            value = `${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}/${date.getFullYear()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+          }
+          
           // Make WorkflowId clickable if it has a value and we're on roles page
           if (tableType === 'roles' && header === 'WorkflowId' && value !== 'NULL' && value !== null) {
             value = `<a href="#" onclick="openWorkflowFromRoles(${value}, '${row.Workflow}')" style="color: blue; text-decoration: underline;">${value}</a>`;
@@ -1752,7 +1768,32 @@
       const tasksDiv = document.getElementById('workflowTasks');
       const paginationDiv = document.getElementById('workflowTasksPagination');
       
+      // Load activities for filter dropdown
+      await loadActivitiesFilter(workflowId);
+      
       const offset = (page - 1) * 100;
+      
+      // Build filter conditions
+      const fromDate = document.getElementById('tasksFromDate')?.value;
+      const thruDate = document.getElementById('tasksThruDate')?.value;
+      const activity = document.getElementById('activityFilter')?.value;
+      const notesCount = document.getElementById('notesCountFilter')?.value;
+      
+      let whereClause = `WHERE w.id = ${workflowId}`;
+      if (fromDate) {
+        whereClause += ` AND e.UpdatedDate >= '${fromDate}'`;
+      }
+      if (thruDate) {
+        whereClause += ` AND e.UpdatedDate <= '${thruDate} 23:59:59'`;
+      }
+      if (activity) {
+        whereClause += ` AND wa.Name = '${activity}'`;
+      }
+      
+      let havingClause = '';
+      if (notesCount) {
+        havingClause = ` HAVING count(wtn.WorkflowTaskId) > ${notesCount}`;
+      }
       
       try {
         const result = await ipcRenderer.invoke('execute-query', 
@@ -1762,17 +1803,18 @@
                     wt.Sentiment, wt.SlaCalculationDate, wt.SlaSeconds,
                     e.Subject, e.[From], 
                     CASE WHEN e.IsHighImportance = 1 THEN 'Yes' ELSE 'No' END as IsHighImportance,
-                    e.CreatedDate, e.UpdatedDate, count(wtn.WorkflowTaskId) as NotesCount, e.Id
+                    e.CreatedDate, e.UpdatedDate, count(wtn.WorkflowTaskId) as Replies, e.Id
              FROM workflows w
              INNER JOIN WorkflowActivities wa ON wa.WorkflowId = w.Id
              INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id AND wt.IsDeleted = 0
              INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId AND e.IsDeleted = 0
              INNER JOIN SystemValues sv ON sv.id = wa.ActivityTypeValueId
              LEFT OUTER JOIN WorkflowTaskNotes wtn ON wtn.WorkflowTaskId = wt.Id
-             WHERE w.id = ${workflowId}
+             ${whereClause}
              GROUP BY wa.Name, wa.ServiceLevelAgreementTicks, sv.Name, wt.Sentiment, 
                       wt.SlaCalculationDate, wt.SlaSeconds, e.Subject, e.[From], 
                       e.IsHighImportance, e.CreatedDate, e.UpdatedDate, e.Id
+             ${havingClause}
            ) AS NumberedResults
            WHERE RowNum > ${offset}
            ORDER BY RowNum`);
@@ -1795,6 +1837,37 @@
       } catch (error) {
         tasksDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
       }
+    }
+    
+    async function loadActivitiesFilter(workflowId) {
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT DISTINCT wa.Name
+           FROM WorkflowActivities wa
+           WHERE wa.WorkflowId = ${workflowId} AND wa.IsDeleted = 0
+           ORDER BY wa.Name`);
+        
+        const select = document.getElementById('activityFilter');
+        if (select && result.success && result.data) {
+          select.innerHTML = '<option value="">All Activities</option>';
+          result.data.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item.Name;
+            option.textContent = item.Name;
+            select.appendChild(option);
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load activities filter:', error);
+      }
+    }
+    
+    function clearTasksFilters() {
+      document.getElementById('tasksFromDate').value = '';
+      document.getElementById('tasksThruDate').value = '';
+      document.getElementById('activityFilter').value = '';
+      document.getElementById('notesCountFilter').value = '';
+      loadWorkflowTasks(currentWorkflowId, 1);
     }
     
     function updateWorkflowTasksPagination(currentPage, hasMore, workflowId) {
