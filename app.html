@@ -548,7 +548,7 @@
   <div id="workflowTaskOpenPage" class="page">
     <div class="query-section">
       <h3 id="workflowTaskTitle">Workflow Task Details</h3>
-      <button onclick="showWorkflowTab('tasks')">← Back to Tasks</button>
+      <button onclick="document.querySelectorAll('.page').forEach(p => p.classList.remove('active')); document.getElementById('workflowOpenPage').classList.add('active'); showWorkflowTab('tasks');">← Back to Tasks</button>
     </div>
     
     <div class="results">
@@ -2278,7 +2278,7 @@
       
       try {
         const result = await ipcRenderer.invoke('execute-query', 
-          `select wt.Name as TaskName, wa.Name as ActivityName, e.Subject, e.[From]
+          `select wt.Name as TaskName, wa.Name as ActivityName, e.Subject, e.[From], e.CreatedDate
            from WorkflowTasks wt
            inner join WorkflowActivities wa
              on wa.Id = wt.WorkflowActivityId
@@ -2293,6 +2293,7 @@
           html += `<p><strong>Activity Name:</strong> ${task.ActivityName || 'N/A'}</p>`;
           html += `<p><strong>Subject:</strong> ${task.Subject || 'N/A'}</p>`;
           html += `<p><strong>From:</strong> ${task.From || 'N/A'}</p>`;
+          html += `<p><strong>Created Date:</strong> ${task.CreatedDate || 'N/A'}</p>`;
           html += '</div>';
           detailsDiv.innerHTML = html;
         } else {
