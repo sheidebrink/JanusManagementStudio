@@ -2311,7 +2311,7 @@
       try {
         // Load customer replies (child emails)
         const customerResult = await ipcRenderer.invoke('execute-query', 
-          `select child.Subject, child.[From], child.CreatedDate, 'Customer Reply' as ReplyType
+          `select child.Id, child.Subject, child.[From], child.CreatedDate, 'Customer Reply' as ReplyType
            from WorkflowTasks wt
            inner join WorkflowActivities wa
              on wa.Id = wt.WorkflowActivityId
@@ -2323,7 +2323,7 @@
         
         // Load internal replies (notes)
         const internalResult = await ipcRenderer.invoke('execute-query', 
-          `select n.Subject, '' as [From], n.CreatedDate, 'Internal Reply' as ReplyType
+          `select n.Id, n.Subject, '' as [From], n.CreatedDate, 'Internal Reply' as ReplyType
            from WorkflowTasks wt
            inner join WorkflowActivities wa
              on wa.Id = wt.WorkflowActivityId
@@ -2349,13 +2349,20 @@
           let html = '';
           allReplies.forEach((reply, index) => {
             const borderColor = reply.ReplyType === 'Customer Reply' ? '#667eea' : '#28a745';
-            html += `<div style="background: white; padding: 15px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid ${borderColor};">`;
-            html += `<h5>${reply.ReplyType}</h5>`;
+            const marginLeft = reply.ReplyType === 'Customer Reply' ? 'margin-left: 30px; ' : '';
+            html += `<div style="background: white; padding: 15px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid ${borderColor}; ${marginLeft}">`;
+            const icon = reply.ReplyType === 'Customer Reply' ? '👤' : '🏢';
+            html += `<h5>${icon} ${reply.ReplyType}</h5>`;
             if (reply.From) {
               html += `<p><strong>From:</strong> ${reply.From}</p>`;
             }
             html += `<p><strong>Subject:</strong> ${reply.Subject || 'N/A'}</p>`;
             html += `<p><strong>Created Date:</strong> ${reply.CreatedDate || 'N/A'}</p>`;
+            if (reply.ReplyType === 'Internal Reply' && reply.Id) {
+              html += `<p><span class="body-icon" onclick="showNoteModal(${reply.Id})" title="View Note Details">📄 View Details</span></p>`;
+            } else if (reply.ReplyType === 'Customer Reply' && reply.Id) {
+              html += `<p><span class="body-icon" onclick="showEmailModal(${reply.Id})" title="View Email Details">📄 View Details</span></p>`;
+            }
             html += '</div>';
           });
           repliesDiv.innerHTML = html;
@@ -2377,6 +2384,65 @@
     
     function closeBodyModal() {
       document.getElementById('bodyModal').style.display = 'none';
+    }
+    
+    async function showNoteModal(noteId) {
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `select n.Subject, n.Body, n.CreatedDate, n.Id
+           from WorkflowTasks wt
+           inner join WorkflowActivities wa
+             on wa.Id = wt.WorkflowActivityId
+           inner join WorkflowTaskNotes wtn
+             on wtn.WorkflowTaskId = wt.Id
+           inner join Notes n
+             on n.id = wtn.NoteId
+           where n.id = ${noteId}`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+          const note = result.data[0];
+          let content = `<p><strong>Note ID:</strong> ${note.Id}</p>`;
+          content += `<p><strong>Subject:</strong> ${note.Subject || 'N/A'}</p>`;
+          content += `<p><strong>Created Date:</strong> ${note.CreatedDate || 'N/A'}</p>`;
+          content += `<p><strong>Body:</strong></p>`;
+          content += `<div style="border: 1px solid #ddd; padding: 15px; background: white; margin-top: 10px; max-height: 400px; overflow-y: auto;">${note.Body || 'No content'}</div>`;
+          
+          document.getElementById('modalTitle').textContent = '🏢 Internal Reply Details';
+          document.getElementById('modalBody').innerHTML = content;
+          document.getElementById('bodyModal').style.display = 'block';
+        } else {
+          alert('Note not found');
+        }
+      } catch (error) {
+        alert(`Error loading note: ${error.message}`);
+      }
+    }
+    
+    async function showEmailModal(emailId) {
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `select e.Subject, e.Body, e.CreatedDate, e.Id, e.[From]
+           from Emails e
+           where e.id = ${emailId}`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+          const email = result.data[0];
+          let content = `<p><strong>Email ID:</strong> ${email.Id}</p>`;
+          content += `<p><strong>Subject:</strong> ${email.Subject || 'N/A'}</p>`;
+          content += `<p><strong>From:</strong> ${email.From || 'N/A'}</p>`;
+          content += `<p><strong>Created Date:</strong> ${email.CreatedDate || 'N/A'}</p>`;
+          content += `<p><strong>Body:</strong></p>`;
+          content += `<div style="border: 1px solid #ddd; padding: 15px; background: white; margin-top: 10px; max-height: 400px; overflow-y: auto;">${email.Body || 'No content'}</div>`;
+          
+          document.getElementById('modalTitle').textContent = '👤 Customer Reply Details';
+          document.getElementById('modalBody').innerHTML = content;
+          document.getElementById('bodyModal').style.display = 'block';
+        } else {
+          alert('Email not found');
+        }
+      } catch (error) {
+        alert(`Error loading email: ${error.message}`);
+      }
     }
     
     // Close modal when clicking outside of it
