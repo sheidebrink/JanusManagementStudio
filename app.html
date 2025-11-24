@@ -230,6 +230,44 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 3000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+    }
+    .modal-content {
+      background-color: white;
+      margin: 5% auto;
+      padding: 20px;
+      border-radius: 5px;
+      width: 80%;
+      max-height: 80%;
+      overflow-y: auto;
+    }
+    .close {
+      color: #aaa;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .close:hover {
+      color: black;
+    }
+    .body-icon {
+      cursor: pointer;
+      color: #667eea;
+      margin-left: 10px;
+      font-size: 16px;
+    }
+    .body-icon:hover {
+      color: #5a6fd8;
+    }
   </style>
 </head>
 <body>
@@ -461,7 +499,8 @@
           <select id="activityFilter" style="width: 150px;">
             <option value="">All Activities</option>
           </select>
-          <input type="number" id="notesCountFilter" style="width: 100px;" placeholder="Notes > X" min="0">
+          <input type="number" id="notesCountFilter" style="width: 120px;" placeholder="Internal Replies > X" min="0">
+          <input type="number" id="customerRepliesFilter" style="width: 120px;" placeholder="Customer Replies > X" min="0">
           <button onclick="loadWorkflowTasks(currentWorkflowId, 1)">Apply Filters</button>
           <button onclick="clearTasksFilters()">Clear</button>
         </div>
@@ -503,6 +542,30 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="workflowTaskOpenPage" class="page">
+    <div class="query-section">
+      <h3 id="workflowTaskTitle">Workflow Task Details</h3>
+      <button onclick="showWorkflowTab('tasks')">← Back to Tasks</button>
+    </div>
+    
+    <div class="results">
+      <h4>Task Information</h4>
+      <div id="workflowTaskDetails">Loading task details...</div>
+      
+      <h4>Replies (Chronological Order)</h4>
+      <div id="workflowTaskReplies">Loading replies...</div>
+    </div>
+  </div>
+
+  <!-- Modal for displaying body content -->
+  <div id="bodyModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeBodyModal()">&times;</span>
+      <h3 id="modalTitle">Content</h3>
+      <div id="modalBody" style="white-space: pre-wrap; border: 1px solid #ddd; padding: 15px; background: #f9f9f9;"></div>
     </div>
   </div>
 
@@ -1103,7 +1166,7 @@
       
       // Hide specific columns for workflow tasks
       if (tableType === 'workflowTasks') {
-        headers = headers.filter(h => !['ServiceLevelAgreementTicks', 'SlaCalculationDate', 'SlaSeconds', 'CreatedDate', 'Id'].includes(h));
+        headers = headers.filter(h => !['ServiceLevelAgreementTicks', 'SlaCalculationDate', 'SlaSeconds', 'CreatedDate', 'Id', 'RowNum'].includes(h));
       }
       
       let tableClass = '';
@@ -1144,6 +1207,11 @@
           if (tableType === 'workflowTasks' && header === 'UpdatedDate' && value !== 'NULL' && value !== null) {
             const date = new Date(value);
             value = `${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}/${date.getFullYear()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+          }
+          
+          // Make WorkflowTaskId clickable if it has a value and we're on workflow tasks page
+          if (tableType === 'workflowTasks' && header === 'WorkflowTaskId' && value !== 'NULL' && value !== null) {
+            value = `<a href="#" onclick="openWorkflowTask(${value})" style="color: blue; text-decoration: underline;">${value}</a>`;
           }
           
           // Make WorkflowId clickable if it has a value and we're on roles page
@@ -1778,6 +1846,7 @@
       const thruDate = document.getElementById('tasksThruDate')?.value;
       const activity = document.getElementById('activityFilter')?.value;
       const notesCount = document.getElementById('notesCountFilter')?.value;
+      const customerReplies = document.getElementById('customerRepliesFilter')?.value;
       
       let whereClause = `WHERE w.id = ${workflowId}`;
       if (fromDate) {
@@ -1791,33 +1860,39 @@
       }
       
       let havingClause = '';
+      const havingConditions = [];
       if (notesCount) {
-        havingClause = ` HAVING count(wtn.WorkflowTaskId) > ${notesCount}`;
+        havingConditions.push(`count(wtn.WorkflowTaskId) > ${notesCount}`);
+      }
+      if (customerReplies) {
+        havingConditions.push(`count(children.Id) > ${customerReplies}`);
+      }
+      if (havingConditions.length > 0) {
+        havingClause = ` HAVING ${havingConditions.join(' AND ')}`;
       }
       
       try {
         const result = await ipcRenderer.invoke('execute-query', 
-          `SELECT TOP 100 * FROM (
-             SELECT ROW_NUMBER() OVER (ORDER BY ${workflowTasksSortField} ${workflowTasksSortOrder}) as RowNum,
-                    wa.Name as Activity, wa.ServiceLevelAgreementTicks, sv.Name as ActivityType,
-                    wt.Sentiment, wt.SlaCalculationDate, wt.SlaSeconds,
-                    e.Subject, e.[From], 
-                    CASE WHEN e.IsHighImportance = 1 THEN 'Yes' ELSE 'No' END as IsHighImportance,
-                    e.CreatedDate, e.UpdatedDate, count(wtn.WorkflowTaskId) as Replies, e.Id
-             FROM workflows w
-             INNER JOIN WorkflowActivities wa ON wa.WorkflowId = w.Id
-             INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id AND wt.IsDeleted = 0
-             INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId AND e.IsDeleted = 0
-             INNER JOIN SystemValues sv ON sv.id = wa.ActivityTypeValueId
-             LEFT OUTER JOIN WorkflowTaskNotes wtn ON wtn.WorkflowTaskId = wt.Id
-             ${whereClause}
-             GROUP BY wa.Name, wa.ServiceLevelAgreementTicks, sv.Name, wt.Sentiment, 
-                      wt.SlaCalculationDate, wt.SlaSeconds, e.Subject, e.[From], 
-                      e.IsHighImportance, e.CreatedDate, e.UpdatedDate, e.Id
-             ${havingClause}
-           ) AS NumberedResults
-           WHERE RowNum > ${offset}
-           ORDER BY RowNum`);
+          `SELECT wa.Name as Activity, wa.ServiceLevelAgreementTicks, sv.Name as ActivityType,
+                  wt.Sentiment, wt.SlaCalculationDate, wt.SlaSeconds, wt.Id as WorkflowTaskId,
+                  e.Subject, e.[From], 
+                  CASE WHEN e.IsHighImportance = 1 THEN 'Yes' ELSE 'No' END as IsHighImportance,
+                  e.CreatedDate, e.UpdatedDate, count(wtn.WorkflowTaskId) as [Internal Replies], 
+                  count(children.Id) as [Customer Replies], e.Id
+           FROM workflows w
+           INNER JOIN WorkflowActivities wa ON wa.WorkflowId = w.Id
+           INNER JOIN WorkflowTasks wt ON wt.WorkflowActivityId = wa.Id AND wt.IsDeleted = 0
+           INNER JOIN Emails e ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId AND e.IsDeleted = 0
+           INNER JOIN SystemValues sv ON sv.id = wa.ActivityTypeValueId
+           LEFT OUTER JOIN WorkflowTaskNotes wtn ON wtn.WorkflowTaskId = wt.Id
+           LEFT OUTER JOIN Emails children ON children.ParentId = e.Id
+           ${whereClause}
+           GROUP BY wa.Name, wa.ServiceLevelAgreementTicks, sv.Name, wt.Sentiment, 
+                    wt.SlaCalculationDate, wt.SlaSeconds, wt.Id, e.Subject, e.[From], 
+                    e.IsHighImportance, e.CreatedDate, e.UpdatedDate, e.Id
+           ${havingClause}
+           ORDER BY ${workflowTasksSortField} ${workflowTasksSortOrder}
+           OFFSET ${offset} ROWS FETCH NEXT 100 ROWS ONLY`);
         
         if (result.success) {
           if (result.data && result.data.length > 0) {
@@ -1867,6 +1942,7 @@
       document.getElementById('tasksThruDate').value = '';
       document.getElementById('activityFilter').value = '';
       document.getElementById('notesCountFilter').value = '';
+      document.getElementById('customerRepliesFilter').value = '';
       loadWorkflowTasks(currentWorkflowId, 1);
     }
     
@@ -2185,6 +2261,129 @@
         
         currentAngle += sliceAngle;
       });
+    }
+    
+    async function openWorkflowTask(workflowTaskId) {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('workflowTaskOpenPage').classList.add('active');
+      document.getElementById('workflowTaskTitle').textContent = `Workflow Task Details (ID: ${workflowTaskId})`;
+      
+      await loadWorkflowTaskDetails(workflowTaskId);
+      await loadWorkflowTaskReplies(workflowTaskId);
+    }
+    
+    async function loadWorkflowTaskDetails(workflowTaskId) {
+      const detailsDiv = document.getElementById('workflowTaskDetails');
+      detailsDiv.innerHTML = 'Loading task details...';
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `select wt.Name as TaskName, wa.Name as ActivityName, e.Subject, e.[From]
+           from WorkflowTasks wt
+           inner join WorkflowActivities wa
+             on wa.Id = wt.WorkflowActivityId
+           left outer join Emails e
+             on e.Id = wt.ParentId
+           where wt.id = ${workflowTaskId}`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+          const task = result.data[0];
+          let html = '<div style="background: white; padding: 20px; border-radius: 5px;">';
+          html += `<p><strong>Task Name:</strong> ${task.TaskName || 'N/A'}</p>`;
+          html += `<p><strong>Activity Name:</strong> ${task.ActivityName || 'N/A'}</p>`;
+          html += `<p><strong>Subject:</strong> ${task.Subject || 'N/A'}</p>`;
+          html += `<p><strong>From:</strong> ${task.From || 'N/A'}</p>`;
+          html += '</div>';
+          detailsDiv.innerHTML = html;
+        } else {
+          detailsDiv.innerHTML = '<div class="error">Task not found</div>';
+        }
+      } catch (error) {
+        detailsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+    
+    async function loadWorkflowTaskReplies(workflowTaskId) {
+      const repliesDiv = document.getElementById('workflowTaskReplies');
+      repliesDiv.innerHTML = 'Loading replies...';
+      
+      try {
+        // Load customer replies (child emails)
+        const customerResult = await ipcRenderer.invoke('execute-query', 
+          `select child.Subject, child.[From], child.CreatedDate, 'Customer Reply' as ReplyType
+           from WorkflowTasks wt
+           inner join WorkflowActivities wa
+             on wa.Id = wt.WorkflowActivityId
+           inner join Emails e
+             on e.ID = wt.ParentId
+           inner join Emails child
+             on child.ParentId = e.Id
+           where wt.id = ${workflowTaskId}`);
+        
+        // Load internal replies (notes)
+        const internalResult = await ipcRenderer.invoke('execute-query', 
+          `select n.Subject, '' as [From], n.CreatedDate, 'Internal Reply' as ReplyType
+           from WorkflowTasks wt
+           inner join WorkflowActivities wa
+             on wa.Id = wt.WorkflowActivityId
+           inner join WorkflowTaskNotes wtn
+             on wtn.WorkflowTaskId = wt.Id
+           inner join Notes n
+             on n.id = wtn.NoteId
+           where wt.id = ${workflowTaskId}`);
+        
+        // Combine and sort by CreatedDate
+        let allReplies = [];
+        if (customerResult.success && customerResult.data) {
+          allReplies = allReplies.concat(customerResult.data);
+        }
+        if (internalResult.success && internalResult.data) {
+          allReplies = allReplies.concat(internalResult.data);
+        }
+        
+        // Sort chronologically
+        allReplies.sort((a, b) => new Date(a.CreatedDate) - new Date(b.CreatedDate));
+        
+        if (allReplies.length > 0) {
+          let html = '';
+          allReplies.forEach((reply, index) => {
+            const borderColor = reply.ReplyType === 'Customer Reply' ? '#667eea' : '#28a745';
+            html += `<div style="background: white; padding: 15px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid ${borderColor};">`;
+            html += `<h5>${reply.ReplyType}</h5>`;
+            if (reply.From) {
+              html += `<p><strong>From:</strong> ${reply.From}</p>`;
+            }
+            html += `<p><strong>Subject:</strong> ${reply.Subject || 'N/A'}</p>`;
+            html += `<p><strong>Created Date:</strong> ${reply.CreatedDate || 'N/A'}</p>`;
+            html += '</div>';
+          });
+          repliesDiv.innerHTML = html;
+        } else {
+          repliesDiv.innerHTML = '<p>No replies found for this task.</p>';
+        }
+      } catch (error) {
+        repliesDiv.innerHTML = `<div class="error">Error loading replies: ${error.message}</div>`;
+      }
+    }
+    
+
+    
+    function showBodyModal(title, body) {
+      document.getElementById('modalTitle').textContent = title;
+      document.getElementById('modalBody').textContent = body || 'No content available';
+      document.getElementById('bodyModal').style.display = 'block';
+    }
+    
+    function closeBodyModal() {
+      document.getElementById('bodyModal').style.display = 'none';
+    }
+    
+    // Close modal when clicking outside of it
+    window.onclick = function(event) {
+      const modal = document.getElementById('bodyModal');
+      if (event.target === modal) {
+        closeBodyModal();
+      }
     }
     
     function drawTimeToReplyChart(data) {
