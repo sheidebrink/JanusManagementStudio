@@ -501,6 +501,12 @@
           </select>
           <input type="number" id="notesCountFilter" style="width: 120px;" placeholder="Internal Replies > X" min="0">
           <input type="number" id="customerRepliesFilter" style="width: 120px;" placeholder="Customer Replies > X" min="0">
+          <select id="sentimentFilter" style="width: 120px;">
+            <option value="">All Sentiments</option>
+            <option value="Positive">Positive</option>
+            <option value="Negative">Negative</option>
+            <option value="Neutral">Neutral</option>
+          </select>
           <button onclick="loadWorkflowTasks(currentWorkflowId, 1)">Apply Filters</button>
           <button onclick="clearTasksFilters()">Clear</button>
         </div>
@@ -1847,6 +1853,7 @@
       const activity = document.getElementById('activityFilter')?.value;
       const notesCount = document.getElementById('notesCountFilter')?.value;
       const customerReplies = document.getElementById('customerRepliesFilter')?.value;
+      const sentiment = document.getElementById('sentimentFilter')?.value;
       
       let whereClause = `WHERE w.id = ${workflowId}`;
       if (fromDate) {
@@ -1857,6 +1864,9 @@
       }
       if (activity) {
         whereClause += ` AND wa.Name = '${activity}'`;
+      }
+      if (sentiment) {
+        whereClause += ` AND wt.Sentiment = '${sentiment}'`;
       }
       
       let havingClause = '';
@@ -1943,6 +1953,7 @@
       document.getElementById('activityFilter').value = '';
       document.getElementById('notesCountFilter').value = '';
       document.getElementById('customerRepliesFilter').value = '';
+      document.getElementById('sentimentFilter').value = '';
       loadWorkflowTasks(currentWorkflowId, 1);
     }
     
@@ -2278,7 +2289,7 @@
       
       try {
         const result = await ipcRenderer.invoke('execute-query', 
-          `select wt.Name as TaskName, wa.Name as ActivityName, e.Subject, e.[From], e.CreatedDate
+          `select wt.Name as TaskName, wa.Name as ActivityName, e.Subject, e.[From], e.CreatedDate, e.Body
            from WorkflowTasks wt
            inner join WorkflowActivities wa
              on wa.Id = wt.WorkflowActivityId
@@ -2294,6 +2305,8 @@
           html += `<p><strong>Subject:</strong> ${task.Subject || 'N/A'}</p>`;
           html += `<p><strong>From:</strong> ${task.From || 'N/A'}</p>`;
           html += `<p><strong>Created Date:</strong> ${task.CreatedDate || 'N/A'}</p>`;
+          html += `<p><strong>Body:</strong> <span onclick="toggleTaskBody()" style="cursor: pointer; color: #667eea;">▶ Show</span></p>`;
+          html += `<div id="taskBodyContent" style="display: none; border: 1px solid #ddd; padding: 15px; background: white; margin-top: 10px; max-height: 400px; overflow-y: auto;">${task.Body || 'No content'}</div>`;
           html += '</div>';
           detailsDiv.innerHTML = html;
         } else {
@@ -2442,6 +2455,19 @@
         }
       } catch (error) {
         alert(`Error loading email: ${error.message}`);
+      }
+    }
+    
+    function toggleTaskBody() {
+      const content = document.getElementById('taskBodyContent');
+      const toggle = event.target;
+      
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        toggle.innerHTML = '▼ Hide';
+      } else {
+        content.style.display = 'none';
+        toggle.innerHTML = '▶ Show';
       }
     }
     
