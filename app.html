@@ -561,6 +561,15 @@
       <h4>Task Information</h4>
       <div id="workflowTaskDetails">Loading task details...</div>
       
+      <div class="sms-section" style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #f9f9f9;">
+        <h4>Send Text Message (to 515-201-9881)</h4>
+        <div style="margin-bottom: 10px;">
+          <label>Message:</label><br>
+          <textarea id="smsMessage" rows="3" style="width: calc(100% - 12px); margin-top: 5px; padding: 5px; border: 1px solid #ddd; border-radius: 3px; font-family: Arial, sans-serif; resize: vertical; box-sizing: border-box;" placeholder="Type your message..." spellcheck="true"></textarea>
+        </div>
+        <button onclick="sendSMS()" style="background: #007cba; color: white; border: none; padding: 8px 16px; border-radius: 3px; cursor: pointer;">Send Text</button>
+      </div>
+      
       <h4>Replies (Chronological Order)</h4>
       <div id="workflowTaskReplies">Loading replies...</div>
     </div>
@@ -2643,6 +2652,29 @@ ${bodyContent}`;
         console.error('AI Analysis error:', error);
         document.getElementById('modalTitle').textContent = '❌ AI Analysis Error';
         document.getElementById('modalBody').innerHTML = `<div style="color: red; padding: 15px;">Error: ${error.message}</div>`;
+      }
+    }
+    
+    async function sendSMS() {
+      const phoneNumber = '+15152019881';
+      const message = document.getElementById('smsMessage').value;
+      
+      if (!message) {
+        alert('Please enter a message');
+        return;
+      }
+      
+      try {
+        const result = await ipcRenderer.invoke('send-sms', phoneNumber, message);
+        
+        if (result.success) {
+          alert(`SMS sent successfully! Message ID: ${result.messageId}`);
+          document.getElementById('smsMessage').value = '';
+        } else {
+          alert(`Failed to send SMS: ${result.error}`);
+        }
+      } catch (error) {
+        alert(`Error sending SMS: ${error.message}`);
       }
     }
     

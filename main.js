@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const sql = require('mssql');
 const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
+const { SNSClient, PublishCommand } = require('@aws-sdk/client-sns');
 
 let mainWindow;
 let dbConnection = null;
@@ -213,6 +214,23 @@ ipcMain.handle('clear-credentials', () => {
 // Toggle developer tools
 ipcMain.handle('toggle-dev-tools', () => {
   mainWindow.webContents.toggleDevTools();
+});
+
+// Send SMS
+ipcMain.handle('send-sms', async (event, phoneNumber, message) => {
+  try {
+    const snsClient = new SNSClient({ region: 'us-east-1' });
+    const command = new PublishCommand({
+      PhoneNumber: phoneNumber,
+      Message: message
+    });
+    
+    const response = await snsClient.send(command);
+    return { success: true, messageId: response.MessageId };
+  } catch (error) {
+    console.error('SMS sending error:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // AI Analysis with AWS Bedrock
