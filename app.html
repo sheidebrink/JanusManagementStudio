@@ -2065,8 +2065,8 @@
       
       const fromDate = document.getElementById('performanceFromDate').value;
       const toDate = document.getElementById('performanceToDate').value;
-      const dateFilter = getDateRangeFilter(fromDate, toDate, 'n');
-      const emailDateFilter = getDateRangeFilter(fromDate, toDate, 'n');
+      const dateFilter = getDateRangeFilter(fromDate, toDate, 'wt');
+      const emailDateFilter = getDateRangeFilter(fromDate, toDate, 'e');
       
       try {
         // Show loading animations
@@ -2076,15 +2076,18 @@
         
         // Load notes per day
         const notesResult = await ipcRenderer.invoke('execute-query', 
-          `SELECT CAST(n.CreatedDate AS DATE) as NoteDate, COUNT(*) as NoteCount
+          `SELECT CAST(wt.CreatedDate AS DATE) as NoteDate, COUNT(*) as NoteCount
            FROM workflows w WITH (NOLOCK)
            INNER JOIN WorkflowActivities wa WITH (NOLOCK) ON wa.WorkflowId = w.Id
            INNER JOIN WorkflowTasks wt WITH (NOLOCK) ON wt.WorkflowActivityId = wa.Id AND wt.IsDeleted = 0
-           INNER JOIN Emails e WITH (NOLOCK) ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId AND e.IsDeleted = 0
-           INNER JOIN WorkflowTaskNotes wtn WITH (NOLOCK) ON wtn.WorkflowTaskId = wt.Id
-           INNER JOIN Notes n WITH (NOLOCK) ON n.id = wtn.NoteId AND n.IsDeleted = 0
-           WHERE w.id = ${currentWorkflowId} AND n.CreatedDate IS NOT NULL ${dateFilter}
-           GROUP BY CAST(n.CreatedDate AS DATE)
+           INNER JOIN Emails e WITH (NOLOCK) 
+           	ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId AND e.IsDeleted = 0
+           LEFT OUTER JOIN WorkflowTaskNotes wtn WITH (NOLOCK) ON wtn.WorkflowTaskId = wt.Id
+           LEFT JOIN Notes n WITH (NOLOCK) ON n.id = wtn.NoteId AND n.IsDeleted = 0
+           LEFT OUTER JOIN Emails replies
+             on replies.ParentId = e.Id
+           WHERE w.id = ${currentWorkflowId} AND wt.CreatedDate IS NOT NULL ${dateFilter}
+           GROUP BY CAST(wt.CreatedDate AS DATE)
            ORDER BY NoteDate`);
         
         if (notesResult.success && notesResult.data) {

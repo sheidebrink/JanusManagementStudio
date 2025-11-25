@@ -147,17 +147,19 @@ ipcMain.handle('execute-query', async (event, query) => {
       throw new Error('No database connection');
     }
     
-    console.log('\n=== SQL QUERY ===');
-    console.log(query);
-    console.log('================\n');
+    const timestamp = new Date().toISOString();
+    console.log(`\n=== SQL QUERY [${timestamp}] ===`);
+    console.log('Query:', query);
+    console.log('=================================\n');
     
     const result = await dbConnection.request().query(query);
     return { success: true, data: result.recordset };
   } catch (error) {
-    console.log('\n=== SQL ERROR ===');
+    const timestamp = new Date().toISOString();
+    console.log(`\n=== SQL ERROR [${timestamp}] ===`);
     console.log('Query:', query);
     console.log('Error:', error.message);
-    console.log('=================\n');
+    console.log('================================\n');
     return { success: false, error: error.message };
   }
 });
