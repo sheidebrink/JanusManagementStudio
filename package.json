@@ -11,6 +11,7 @@
     "electron": "^27.0.0"
   },
   "dependencies": {
-    "mssql": "^10.0.1"
+    "mssql": "^10.0.1",
+    "@aws-sdk/client-bedrock-runtime": "^3.0.0"
   }
 }

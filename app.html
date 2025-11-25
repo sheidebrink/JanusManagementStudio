@@ -2307,7 +2307,16 @@
           html += `<p><strong>Created Date:</strong> ${task.CreatedDate || 'N/A'}</p>`;
           html += `<p><strong>Body:</strong> <span onclick="toggleTaskBody()" style="cursor: pointer; color: #667eea;">▶ Show</span></p>`;
           html += `<div id="taskBodyContent" style="display: none; border: 1px solid #ddd; padding: 15px; background: white; margin-top: 10px; max-height: 400px; overflow-y: auto;">${task.Body || 'No content'}</div>`;
+          html += `<p style="margin-top: 15px;"><button id="aiAnalysisBtn" style="background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">🤖 AI Analysis</button></p>`;
           html += '</div>';
+          
+          // Store body content and add click handler after DOM update
+          setTimeout(() => {
+            const btn = document.getElementById('aiAnalysisBtn');
+            if (btn) {
+              btn.onclick = () => analyzeWithAI(task.Body || '');
+            }
+          }, 100);
           detailsDiv.innerHTML = html;
         } else {
           detailsDiv.innerHTML = '<div class="error">Task not found</div>';
@@ -2468,6 +2477,172 @@
       } else {
         content.style.display = 'none';
         toggle.innerHTML = '▶ Show';
+      }
+    }
+    
+    async function analyzeWithAI(bodyContent) {
+      console.log('AI Analysis clicked, body content length:', bodyContent.length);
+      
+      if (!bodyContent || bodyContent === 'No content') {
+        alert('No content available for analysis');
+        return;
+      }
+      
+      // Claude 3 Haiku has 200k token limit, so no truncation needed for most content
+      console.log('Content length:', bodyContent.length, 'characters');
+      
+      // Show loading message
+      document.getElementById('modalTitle').textContent = '🤖 AI Analysis';
+      document.getElementById('modalBody').innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner"></div><p>Analyzing content...</p></div>';
+      document.getElementById('bodyModal').style.display = 'block';
+      
+      const prompt = `You are an AI claims assistant helping an insurance adjuster analyze claim communications.
+
+You will receive communication content that may contain email threads, messages, and notes related to ONE SINGLE CLAIM. Even if there are multiple emails in a thread, treat this as ONE CLAIM with multiple communications.
+
+Instructions:
+
+1. Analyze the entire communication thread as ONE CLAIM:
+a. Summarize all communications in 2-3 sentences.
+b. Extract key facts: claim number, insured name, loss type, all dates mentioned, and any attachments or notes.
+c. Determine if the adjuster has responded to all customer questions or requests.
+d. Evaluate the adjuster's communication for professionalism, clarity, and completeness.
+e. Identify any missing actions or follow-ups.
+f. Suggest recommended next steps.
+g. Assign a priority: High / Medium / Low.
+h. Provide a confidence score (0-100) representing how complete and timely the adjuster's responses are.
+
+2. Return results in JSON format as a SINGLE object (not an array), structured as:
+{
+  "claim_number": "...",
+  "summary": "...",
+  "key_facts": {
+    "insured_name": "...",
+    "loss_type": "...",
+    "dates": [...],
+    "attachments": [...]
+  },
+  "adjuster_performance": {
+    "professionalism": "...",
+    "clarity": "...",
+    "completeness": "..."
+  },
+  "missing_actions": [...],
+  "recommended_next_steps": [...],
+  "priority": "...",
+  "confidence_score": ...
+}
+
+Communication content:
+${bodyContent}`;
+      
+      try {
+        console.log('Sending to AI service...');
+        // Send to AWS AI service via main process
+        const result = await ipcRenderer.invoke('analyze-with-ai', prompt);
+        console.log('AI service result:', result);
+        
+        if (result.success) {
+          // Display results in modal
+          document.getElementById('modalTitle').textContent = '🤖 AI Analysis Results';
+          
+          // Parse the response if it's a string
+          let parsedData = result.data;
+          if (typeof parsedData === 'string') {
+            try {
+              // Try to extract JSON from the string
+              const jsonMatch = parsedData.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                parsedData = JSON.parse(jsonMatch[0]);
+              }
+            } catch (e) {
+              console.log('Failed to parse JSON, using raw string');
+            }
+          }
+          
+          // Format the response into readable HTML
+          let formattedResponse = parsedData;
+          if (typeof formattedResponse === 'object' && formattedResponse !== null) {
+            // Format JSON object into readable HTML
+            let html = '';
+            if (formattedResponse.claim_number) {
+              html += `<h3 style="color: #667eea; margin-bottom: 20px;">📋 Claim: ${formattedResponse.claim_number}</h3>`;
+            }
+            if (formattedResponse.summary) {
+              html += `<div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #28a745;">`;
+              html += `<h4 style="color: #28a745; margin: 0 0 10px 0;">📝 Thread Summary</h4>`;
+              html += `<p style="margin: 0;">${formattedResponse.summary}</p>`;
+              html += `</div>`;
+            }
+            if (formattedResponse.key_facts) {
+              html += `<div style="background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #2196f3;">`;
+              html += `<h4 style="color: #1976d2; margin: 0 0 10px 0;">📄 Key Facts</h4>`;
+              if (formattedResponse.key_facts.insured_name) html += `<p style="margin: 5px 0;"><strong>👤 Insured:</strong> ${formattedResponse.key_facts.insured_name}</p>`;
+              if (formattedResponse.key_facts.loss_type) html += `<p style="margin: 5px 0;"><strong>🏥 Loss Type:</strong> ${formattedResponse.key_facts.loss_type}</p>`;
+              if (formattedResponse.key_facts.dates && formattedResponse.key_facts.dates.length > 0) html += `<p style="margin: 5px 0;"><strong>📅 Key Dates:</strong> ${Array.isArray(formattedResponse.key_facts.dates) ? formattedResponse.key_facts.dates.join(', ') : formattedResponse.key_facts.dates}</p>`;
+              if (formattedResponse.key_facts.attachments && formattedResponse.key_facts.attachments.length > 0) html += `<p style="margin: 5px 0;"><strong>📎 Attachments:</strong> ${formattedResponse.key_facts.attachments.join(', ')}</p>`;
+              html += `</div>`;
+            }
+            
+            if (formattedResponse.adjuster_performance) {
+              html += `<div style="background: #f3e5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #9c27b0;">`;
+              html += `<h4 style="color: #7b1fa2; margin: 0 0 10px 0;">📊 Adjuster Performance</h4>`;
+              if (formattedResponse.adjuster_performance.professionalism) html += `<p style="margin: 5px 0;"><strong>Professionalism:</strong> ${formattedResponse.adjuster_performance.professionalism}</p>`;
+              if (formattedResponse.adjuster_performance.clarity) html += `<p style="margin: 5px 0;"><strong>Clarity:</strong> ${formattedResponse.adjuster_performance.clarity}</p>`;
+              if (formattedResponse.adjuster_performance.completeness) html += `<p style="margin: 5px 0;"><strong>Completeness:</strong> ${formattedResponse.adjuster_performance.completeness}</p>`;
+              html += `</div>`;
+            }
+            
+            if (formattedResponse.missing_actions && formattedResponse.missing_actions.length > 0) {
+              html += `<div style="background: #fff3e0; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #ff9800;">`;
+              html += `<h4 style="color: #f57c00; margin: 0 0 10px 0;">⚠️ Missing Actions</h4>`;
+              html += `<ul style="margin: 0; padding-left: 20px;">`;
+              formattedResponse.missing_actions.forEach(action => {
+                html += `<li style="margin: 5px 0;">${action}</li>`;
+              });
+              html += `</ul></div>`;
+            }
+            
+            if (formattedResponse.recommended_next_steps && formattedResponse.recommended_next_steps.length > 0) {
+              html += `<div style="background: #e8f5e8; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #4caf50;">`;
+              html += `<h4 style="color: #388e3c; margin: 0 0 10px 0;">📝 Recommended Next Steps</h4>`;
+              html += `<ul style="margin: 0; padding-left: 20px;">`;
+              formattedResponse.recommended_next_steps.forEach(step => {
+                html += `<li style="margin: 5px 0;">${step}</li>`;
+              });
+              html += `</ul></div>`;
+            }
+            
+            html += `<div style="display: flex; gap: 20px; margin-top: 20px;">`;
+            if (formattedResponse.priority) {
+              const priorityColor = formattedResponse.priority === 'High' ? '#dc3545' : formattedResponse.priority === 'Medium' ? '#ffc107' : '#28a745';
+              html += `<div style="background: white; padding: 10px 15px; border-radius: 5px; border: 2px solid ${priorityColor};"><strong>⚠️ Priority:</strong> <span style="color: ${priorityColor}; font-weight: bold;">${formattedResponse.priority}</span></div>`;
+            }
+            if (formattedResponse.confidence_score) {
+              html += `<div style="background: white; padding: 10px 15px; border-radius: 5px; border: 2px solid #28a745;"><strong>🎯 Confidence:</strong> <span style="color: #28a745; font-weight: bold;">${formattedResponse.confidence_score}%</span></div>`;
+            }
+            html += `</div>`;
+            formattedResponse = html;
+          } else if (typeof formattedResponse === 'string') {
+            // Handle string responses
+            formattedResponse = formattedResponse
+              .replace(/Claim #: ([^\n]+)/g, '<h3 style="color: #667eea; margin-top: 20px;">📋 Claim #: $1</h3>')
+              .replace(/Summary:/g, '<h4 style="color: #28a745; margin-top: 15px;">📝 Summary:</h4>')
+              .replace(/\n/g, '<br>');
+          } else {
+            // Fallback to JSON
+            formattedResponse = `<pre style="white-space: pre-wrap; font-family: monospace;">${JSON.stringify(result.data, null, 2)}</pre>`;
+          }
+          
+          document.getElementById('modalBody').innerHTML = `<div style="background: #fafafa; padding: 20px; border-radius: 4px; max-height: 600px; overflow-y: auto;">${formattedResponse}</div>`;
+        } else {
+          document.getElementById('modalTitle').textContent = '❌ AI Analysis Error';
+          document.getElementById('modalBody').innerHTML = `<div style="color: red; padding: 15px;">Error: ${result.error}</div>`;
+        }
+      } catch (error) {
+        console.error('AI Analysis error:', error);
+        document.getElementById('modalTitle').textContent = '❌ AI Analysis Error';
+        document.getElementById('modalBody').innerHTML = `<div style="color: red; padding: 15px;">Error: ${error.message}</div>`;
       }
     }
     

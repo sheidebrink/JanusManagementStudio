@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, safeStorage, screen } = require('electron')
 const path = require('path');
 const fs = require('fs');
 const sql = require('mssql');
+const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
 
 let mainWindow;
 let dbConnection = null;
@@ -212,4 +213,44 @@ ipcMain.handle('clear-credentials', () => {
 // Toggle developer tools
 ipcMain.handle('toggle-dev-tools', () => {
   mainWindow.webContents.toggleDevTools();
+});
+
+// AI Analysis with AWS Bedrock
+ipcMain.handle('analyze-with-ai', async (event, prompt) => {
+  try {
+    const client = new BedrockRuntimeClient({ region: 'us-east-1' });
+    
+    const command = new InvokeModelCommand({
+      modelId: 'anthropic.claude-3-haiku-20240307-v1:0',
+      contentType: 'application/json',
+      accept: 'application/json',
+      body: JSON.stringify({
+        anthropic_version: 'bedrock-2023-05-31',
+        max_tokens: 4000,
+        messages: [{
+          role: 'user',
+          content: prompt
+        }]
+      })
+    });
+    
+    const response = await client.send(command);
+    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+    
+    // Try to parse the AI response as JSON
+    let aiResponse = responseBody.content[0].text;
+    try {
+      const jsonMatch = aiResponse.match(/\[.*\]/s);
+      if (jsonMatch) {
+        aiResponse = JSON.parse(jsonMatch[0]);
+      }
+    } catch (parseError) {
+      // If JSON parsing fails, return the raw text
+    }
+    
+    return { success: true, data: aiResponse };
+  } catch (error) {
+    console.error('AI Analysis error:', error);
+    return { success: false, error: error.message };
+  }
 });
