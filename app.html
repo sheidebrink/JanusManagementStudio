@@ -2066,7 +2066,7 @@
       const fromDate = document.getElementById('performanceFromDate').value;
       const toDate = document.getElementById('performanceToDate').value;
       const dateFilter = getDateRangeFilter(fromDate, toDate, 'wt');
-      const emailDateFilter = getDateRangeFilter(fromDate, toDate, 'e');
+      const emailDateFilter = getDateRangeFilter(fromDate, toDate, 'n');
       
       try {
         // Show loading animations
@@ -2121,17 +2121,15 @@
         // Load time to reply per day
         const timeToReplyResult = await ipcRenderer.invoke('execute-query', 
           `SELECT CAST(n.CreatedDate AS DATE) as ReplyDate, 
-                  AVG(DATEDIFF(HOUR, e.CreatedDate, n.CreatedDate)) as AvgTimeToReplyHours
+                  AVG(DATEDIFF(MINUTE, e.CreatedDate, n.CreatedDate)) as AvgTimeToReplyHours
            FROM workflows w WITH (NOLOCK)
            INNER JOIN WorkflowActivities wa WITH (NOLOCK) ON wa.WorkflowId = w.Id
            INNER JOIN WorkflowTasks wt WITH (NOLOCK) ON wt.WorkflowActivityId = wa.Id AND wt.IsDeleted = 0
            INNER JOIN Emails e WITH (NOLOCK) ON e.Id = wt.ParentId AND e.TenantId = wt.TenantId AND e.IsDeleted = 0
            INNER JOIN WorkflowTaskNotes wtn WITH (NOLOCK) ON wtn.WorkflowTaskId = wt.Id
            INNER JOIN Notes n WITH (NOLOCK) ON n.id = wtn.NoteId AND n.IsDeleted = 0
-           INNER JOIN SystemValues sv2 WITH (NOLOCK) ON sv2.id = n.MailActionTypeValueId AND sv2.Id IN ('B2C3D4E5-F6A1-4B2C-8D9E-2345678901B2','C3D4E5F6-A1B2-4C3D-9E8F-3456789012C3')
            WHERE w.id = ${currentWorkflowId} 
-           AND n.CreatedDate IS NOT NULL AND e.CreatedDate IS NOT NULL 
-           AND n.SystemTypeValueId = '069CF110-D3EF-441E-AA8C-EEC2D19954DA' ${emailDateFilter}
+           AND n.CreatedDate IS NOT NULL AND e.CreatedDate IS NOT NULL ${emailDateFilter}
            GROUP BY CAST(n.CreatedDate AS DATE)
            ORDER BY ReplyDate`);
         
@@ -2209,7 +2207,7 @@
       }
       
       const maxCount = Math.max(...data.map(item => item.NoteCount));
-      const barWidth = (canvas.width - 200) / data.length;
+      const barWidth = Math.max(15, (canvas.width - 200) / data.length);
       const maxBarHeight = canvas.height - 180;
       
       const colors = ['#36A2EB', '#4BC0C0', '#FFCE56', '#FF6384', '#9966FF'];
