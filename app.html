@@ -1734,7 +1734,7 @@
         
         try {
           const result = await ipcRenderer.invoke('execute-query', 
-            `SELECT Name, Label, IconName, Route, 
+            `SELECT Id, Name, Label, IconName, Route, 
                     CASE WHEN IsMenu = 1 THEN 'Yes' ELSE 'No' END as IsMenu,
                     Position
              FROM SystemFunctions 
@@ -1742,8 +1742,8 @@
              ORDER BY Position`);
           
           if (result.success && result.data && result.data.length > 0) {
-            const table = createTable(result.data);
-            functionsDiv.innerHTML = `<p>${result.data.length} functions found:</p>${table}`;
+            const functionsHtml = await createFunctionsTable(result.data);
+            functionsDiv.innerHTML = `<p>${result.data.length} functions found:</p>${functionsHtml}`;
           } else {
             functionsDiv.innerHTML = '<p>No functions found for this module.</p>';
           }
@@ -1754,6 +1754,45 @@
         functionsDiv.style.display = 'none';
         header.innerHTML = header.innerHTML.replace('▼', '▶');
       }
+    }
+    
+    async function createFunctionsTable(functions) {
+      let html = '<table><thead><tr><th>Name</th><th>Label</th><th>IconName</th><th>Route</th><th>IsMenu</th><th>Position</th><th>Roles</th></tr></thead><tbody>';
+      
+      for (const func of functions) {
+        // Get roles for this function
+        let roles = 'N/A';
+        try {
+          const rolesResult = await ipcRenderer.invoke('execute-query', 
+            `select asr.Name from SystemFunctions sf
+             inner join SystemFunctionRoles sfr
+               on sfr.SystemFunctionId = sf.Id
+             inner join [TrustJanusPlatform].dbo.aspnetroles asr
+               on asr.id = sfr.roleId
+             where sf.id = '${func.Id}'`);
+          
+          if (rolesResult.success && rolesResult.data && rolesResult.data.length > 0) {
+            roles = rolesResult.data.map(r => r.Name).join(', ');
+          } else {
+            roles = 'No roles assigned';
+          }
+        } catch (error) {
+          roles = 'N/A';
+        }
+        
+        html += '<tr>';
+        html += `<td>${func.Name || 'NULL'}</td>`;
+        html += `<td>${func.Label || 'NULL'}</td>`;
+        html += `<td>${func.IconName || 'NULL'}</td>`;
+        html += `<td>${func.Route || 'NULL'}</td>`;
+        html += `<td>${func.IsMenu || 'NULL'}</td>`;
+        html += `<td>${func.Position || 'NULL'}</td>`;
+        html += `<td>${roles}</td>`;
+        html += '</tr>';
+      }
+      
+      html += '</tbody></table>';
+      return html;
     }
     
     function showRolesPage() {
