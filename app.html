@@ -352,19 +352,36 @@
     <div class="query-section">
       <h3>System - User Tracking</h3>
       <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
-        <input type="date" id="dateFromFilter" style="width: 150px;" placeholder="From Date">
-        <input type="date" id="dateThroughFilter" style="width: 150px;" placeholder="Through Date">
-        <select id="moduleFilter" multiple style="width: 150px; height: 80px;">
-          <option value="">Loading modules...</option>
-        </select>
-        <select id="functionFilter" multiple style="width: 150px; height: 80px;">
-          <option value="">Loading functions...</option>
-        </select>
-        <select id="tenantFilter" multiple style="width: 150px; height: 80px;">
-          <option value="">Loading tenants...</option>
-        </select>
-        <button onclick="loadUserTracking(1)">Apply Filters</button>
-        <button onclick="clearFilters()">Clear</button>
+        <div style="flex: 1;">
+          <label style="font-weight: bold; display: block;">From Date</label>
+          <input type="date" id="dateFromFilter" style="width: 100%;">
+        </div>
+        <div style="flex: 1;">
+          <label style="font-weight: bold; display: block;">Through Date</label>
+          <input type="date" id="dateThroughFilter" style="width: 100%;">
+        </div>
+        <div style="flex: 1;">
+          <label style="font-weight: bold; display: block;">Module</label>
+          <select id="moduleFilter" multiple style="width: 100%; height: 80px;" onchange="filterFunctionsByModule()">
+            <option value="">Loading modules...</option>
+          </select>
+        </div>
+        <div style="flex: 1;">
+          <label style="font-weight: bold; display: block;">Function</label>
+          <select id="functionFilter" multiple style="width: 100%; height: 80px;">
+            <option value="">Loading functions...</option>
+          </select>
+        </div>
+        <div style="flex: 1;">
+          <label style="font-weight: bold; display: block;">Tenant</label>
+          <select id="tenantFilter" multiple style="width: 100%; height: 80px;">
+            <option value="">Loading tenants...</option>
+          </select>
+        </div>
+        <div style="align-self: flex-end;">
+          <button onclick="loadUserTracking(1)">Apply Filters</button>
+          <button onclick="clearFilters()">Clear</button>
+        </div>
       </div>
       <div id="trackingPagination" style="margin-bottom: 10px;"></div>
     </div>
@@ -399,10 +416,24 @@
     <div class="query-section">
       <h3>System - Logs</h3>
       <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
-        <input type="date" id="logsDateFromFilter" style="width: 150px;" placeholder="From Date">
-        <input type="date" id="logsDateThroughFilter" style="width: 150px;" placeholder="Through Date">
-        <button onclick="loadLogs(1)">Apply Filters</button>
-        <button onclick="clearLogsFilters()">Clear</button>
+        <div style="flex: 1;">
+          <label style="font-weight: bold; display: block;">From Date</label>
+          <input type="date" id="logsDateFromFilter" style="width: 100%;">
+        </div>
+        <div style="flex: 1;">
+          <label style="font-weight: bold; display: block;">Through Date</label>
+          <input type="date" id="logsDateThroughFilter" style="width: 100%;">
+        </div>
+        <div style="flex: 1;">
+          <label style="font-weight: bold; display: block;">Log Level</label>
+          <select id="logLevelFilter" multiple style="width: 100%; height: 80px;">
+            <option value="">Loading log levels...</option>
+          </select>
+        </div>
+        <div style="align-self: flex-end;">
+          <button onclick="loadLogs(1)">Apply Filters</button>
+          <button onclick="clearLogsFilters()">Clear</button>
+        </div>
       </div>
       <div id="logsPagination" style="margin-bottom: 10px;"></div>
     </div>
@@ -1062,7 +1093,7 @@
       document.querySelectorAll('.dropdown').forEach(d => d.style.display = 'none');
       setDefaultDates();
       loadFilterOptions();
-      loadUserTracking(1);
+      document.getElementById('userTrackingResults').innerHTML = 'Apply filters to load data.';
     }
     
     function setDefaultDates() {
@@ -1071,15 +1102,18 @@
       document.getElementById('dateThroughFilter').value = today;
     }
     
+    let allFunctions = [];
+    
     async function loadFilterOptions() {
       try {
         // Load modules
         const modules = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT sm.name FROM SystemModules sm ORDER BY sm.name');
         populateSelect('moduleFilter', modules.data, 'name');
         
-        // Load functions
-        const functions = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT sf.Name FROM systemfunctions sf ORDER BY sf.Name');
-        populateSelect('functionFilter', functions.data, 'Name');
+        // Load all functions with module info
+        const functions = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT sf.Name, sm.name as ModuleName FROM systemfunctions sf INNER JOIN SystemModules sm ON sm.id = sf.SystemModuleId ORDER BY sf.Name');
+        allFunctions = functions.data || [];
+        populateSelect('functionFilter', allFunctions, 'Name');
         
         // Load tenants
         const tenants = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT t.name FROM Tenants t ORDER BY t.name');
@@ -1088,6 +1122,32 @@
 
       } catch (error) {
         console.error('Failed to load filter options:', error);
+      }
+    }
+    
+    function filterFunctionsByModule() {
+      const selectedModules = getSelectedValues('moduleFilter');
+      const functionSelect = document.getElementById('functionFilter');
+      
+      functionSelect.innerHTML = '';
+      
+      if (selectedModules.length === 0) {
+        // Show all functions if no modules selected
+        allFunctions.forEach(func => {
+          const option = document.createElement('option');
+          option.value = func.Name;
+          option.textContent = func.Name;
+          functionSelect.appendChild(option);
+        });
+      } else {
+        // Show only functions from selected modules
+        const filteredFunctions = allFunctions.filter(func => selectedModules.includes(func.ModuleName));
+        filteredFunctions.forEach(func => {
+          const option = document.createElement('option');
+          option.value = func.Name;
+          option.textContent = func.Name;
+          functionSelect.appendChild(option);
+        });
       }
     }
     
@@ -1147,7 +1207,7 @@
       
       const offset = (page - 1) * 100;
       
-      resultsDiv.innerHTML = 'Loading user tracking data...';
+      resultsDiv.innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner"></div><p>Loading user tracking data...</p></div>';
       
       try {
         const result = await ipcRenderer.invoke('execute-query', 
@@ -1177,10 +1237,12 @@
             updatePagination(page, hasMore, 'loadUserTracking');
             
             // Load chart data
-            loadAllCharts();
+            await loadAllCharts();
           } else {
             resultsDiv.innerHTML = '<p>No user tracking data found.</p>';
             paginationDiv.innerHTML = '';
+            // Clear charts when no data
+            clearAllCharts();
           }
         } else {
           resultsDiv.innerHTML = `<div class="error">Failed to load user tracking: ${result.error}</div>`;
@@ -1249,6 +1311,8 @@
           if (tableType === 'roles' && header === 'WorkflowId' && value !== 'NULL' && value !== null) {
             value = `<a href="#" onclick="openWorkflowFromRoles(${value}, '${row.Workflow}')" style="color: blue; text-decoration: underline;">${value}</a>`;
           }
+          
+
           
           html += `<td class="${colClass}" title="${row[header]}">${value}</td>`;
         });
@@ -1398,6 +1462,14 @@
       } catch (error) {
         console.error('Failed to load chart data:', error);
       }
+    }
+    
+    function clearAllCharts() {
+      ['functionsChart', 'pathsChart', 'modulesChart', 'usersChart'].forEach(canvasId => {
+        const canvas = document.getElementById(canvasId);
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      });
     }
     
     function drawPieChart(data, canvasId) {
@@ -1578,7 +1650,32 @@
       document.getElementById('logsPage').classList.add('active');
       closeAllMenus();
       setDefaultLogsDates();
-      loadLogs(1);
+      loadLogLevelFilter();
+      document.getElementById('logsResults').innerHTML = 'Apply filters to load logs.';
+    }
+    
+    async function loadLogLevelFilter() {
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `select Id, Name
+           from systemvalues
+           where SystemLookupId = '30C60DB9-CEFE-4259-97B3-DC1936EF430D'
+           order by Position`);
+        
+        const select = document.getElementById('logLevelFilter');
+        select.innerHTML = '';
+        
+        if (result.success && result.data) {
+          result.data.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item.Id;
+            option.textContent = item.Name;
+            select.appendChild(option);
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load log levels:', error);
+      }
     }
     
     function setDefaultLogsDates() {
@@ -1598,28 +1695,33 @@
       
       const dateFrom = document.getElementById('logsDateFromFilter').value;
       const dateThrough = document.getElementById('logsDateThroughFilter').value;
+      const logLevels = getSelectedValues('logLevelFilter');
       
-      let whereClause = 'WHERE IsDeleted = 0';
+      let whereClause = 'WHERE Logs.IsDeleted = 0';
       if (dateFrom) {
-        whereClause += ` AND CreatedDate >= '${dateFrom}'`;
+        whereClause += ` AND Logs.CreatedDate >= '${dateFrom}'`;
       }
       if (dateThrough) {
-        whereClause += ` AND CreatedDate <= '${dateThrough} 23:59:59'`;
+        whereClause += ` AND Logs.CreatedDate <= '${dateThrough} 23:59:59'`;
+      }
+      if (logLevels.length > 0) {
+        const logLevelList = logLevels.map(l => `'${l}'`).join(',');
+        whereClause += ` AND Logs.LogLevel IN (${logLevelList})`;
       }
       
       const offset = (page - 1) * 100;
       
-      resultsDiv.innerHTML = 'Loading logs...';
+      resultsDiv.innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner"></div><p>Loading logs...</p></div>';
       
       try {
         const result = await ipcRenderer.invoke('execute-query', 
           `SELECT TOP 100 * FROM (
-             SELECT ROW_NUMBER() OVER (ORDER BY ${logsSortField} ${logsSortOrder}) as RowNum,
-                    [Id], [Summary], [Description], [Origin], [LogLevel], 
-                    CASE WHEN [Resolved] = 1 THEN 'Yes' ELSE 'No' END as [Resolved],
-                    [ResolvedDate], [Resolution], [CreatedById], [CreatedDate], 
-                    [UpdatedById], [UpdatedDate]
+             SELECT ROW_NUMBER() OVER (ORDER BY Logs.${logsSortField} ${logsSortOrder}) as RowNum,
+                    Logs.[Id], Logs.[Summary], Logs.[Description], Logs.[Origin], sv.[Name] as [LogLevel], 
+                    p.FirstName + ' ' + p.LastName as [Created By], Logs.[CreatedDate]
              FROM Logs
+             INNER JOIN People p ON p.ApplicationUserId = Logs.CreatedById
+             INNER JOIN SystemValues sv ON sv.Id = Logs.LogLevel
              ${whereClause}
            ) AS NumberedResults
            WHERE RowNum > ${offset}
@@ -1662,6 +1764,7 @@
     
     function clearLogsFilters() {
       setDefaultLogsDates();
+      document.getElementById('logLevelFilter').selectedIndex = -1;
       loadLogs(1);
     }
     
@@ -1804,33 +1907,13 @@
     }
     
     async function loadRolesFilterOptions() {
-      try {
-        // Load tenants
-        const tenants = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Tenant FROM [System_Roles_Workflows_View] WHERE Tenant IS NOT NULL ORDER BY Tenant');
-        populateSelect('rolesTenantFilter', tenants.data, 'Tenant');
-        
-        // Load roles
-        const roles = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Role FROM [System_Roles_Workflows_View] WHERE Role IS NOT NULL ORDER BY Role');
-        populateSelect('rolesRoleFilter', roles.data, 'Role');
-        
-        // Load modules
-        const modules = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Module FROM [System_Roles_Workflows_View] WHERE Module IS NOT NULL ORDER BY Module');
-        populateSelect('rolesModuleFilter', modules.data, 'Module');
-        
-        // Load functions
-        const functions = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT [Function] FROM [System_Roles_Workflows_View] WHERE [Function] IS NOT NULL ORDER BY [Function]');
-        populateSelect('rolesFunctionFilter', functions.data, 'Function');
-        
-        // Load workflows
-        const workflows = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Workflow FROM [System_Roles_Workflows_View] WHERE Workflow IS NOT NULL ORDER BY Workflow');
-        populateSelect('rolesWorkflowFilter', workflows.data, 'Workflow');
-        
-        // Load last names
-        const lastNames = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT LastName FROM [System_Roles_Workflows_View] WHERE LastName IS NOT NULL ORDER BY LastName');
-        populateSelect('rolesLastNameFilter', lastNames.data, 'LastName');
-      } catch (error) {
-        console.error('Failed to load roles filter options:', error);
-      }
+      // Disable roles page functionality since System_Roles_Workflows_View doesn't exist
+      document.getElementById('rolesTenantFilter').innerHTML = '<option>View not available</option>';
+      document.getElementById('rolesRoleFilter').innerHTML = '<option>View not available</option>';
+      document.getElementById('rolesModuleFilter').innerHTML = '<option>View not available</option>';
+      document.getElementById('rolesFunctionFilter').innerHTML = '<option>View not available</option>';
+      document.getElementById('rolesWorkflowFilter').innerHTML = '<option>View not available</option>';
+      document.getElementById('rolesLastNameFilter').innerHTML = '<option>View not available</option>';
     }
     
     let currentRolesPage = 1;
@@ -1880,32 +1963,11 @@
       resultsDiv.innerHTML = 'Loading roles...';
       
       try {
-        const result = await ipcRenderer.invoke('execute-query', 
-          `SELECT TOP 100 * FROM (
-             SELECT ROW_NUMBER() OVER (ORDER BY ${rolesSortField} ${rolesSortOrder}) as RowNum,
-                    TenantId, Tenant, Role, Activity, Module, [Function], 
-                    WorkflowId, Workflow, PersonId, FirstName, LastName
-             FROM [System_Roles_Workflows_View]
-             ${whereClause}
-           ) AS NumberedResults
-           WHERE RowNum > ${offset}
-           ORDER BY RowNum`);
+        // System_Roles_Workflows_View doesn't exist, show message instead
+        const result = { success: true, data: [] };
         
-        if (result.success) {
-          if (result.data && result.data.length > 0) {
-            const table = createSortableTable(result.data, 'roles');
-            resultsDiv.innerHTML = table;
-            
-            // Update pagination
-            const hasMore = result.data.length === 100;
-            updateRolesPagination(page, hasMore);
-          } else {
-            resultsDiv.innerHTML = '<p>No roles found.</p>';
-            paginationDiv.innerHTML = '';
-          }
-        } else {
-          resultsDiv.innerHTML = `<div class="error">Failed to load roles: ${result.error}</div>`;
-        }
+        resultsDiv.innerHTML = '<div class="error">System_Roles_Workflows_View does not exist in the database. This view needs to be created to display roles data.</div>';
+        paginationDiv.innerHTML = '';
       } catch (error) {
         resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
       }
@@ -2880,6 +2942,8 @@ ${bodyContent}`;
         ctx.restore();
       });
     }
+    
+
   </script>
 </body>
 </html>
