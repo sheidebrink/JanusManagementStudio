@@ -415,6 +415,17 @@
   <div id="logsPage" class="page">
     <div class="query-section">
       <h3>System - Logs</h3>
+      <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 15px; border: 1px solid #dee2e6;">
+        <h4 style="margin: 0 0 10px 0;">Solution Path Configuration</h4>
+        <div style="display: flex; gap: 10px; align-items: flex-end;">
+          <div style="flex: 1;">
+            <label style="font-weight: bold; display: block;">Solution Path</label>
+            <input type="text" id="solutionPath" placeholder="C:\path\to\your\solution" style="width: 100%; padding: 5px;">
+          </div>
+          <button onclick="browseSolutionPath()">Browse</button>
+          <button onclick="saveSolutionPath()">Save</button>
+        </div>
+      </div>
       <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
         <div style="flex: 1;">
           <label style="font-weight: bold; display: block;">From Date</label>
@@ -628,6 +639,15 @@
       <span class="close" onclick="closeBodyModal()">&times;</span>
       <h3 id="modalTitle">Content</h3>
       <div id="modalBody" style="white-space: pre-wrap; border: 1px solid #ddd; padding: 15px; background: #f9f9f9;"></div>
+    </div>
+  </div>
+  
+  <!-- Modal for displaying source search results -->
+  <div id="sourceSearchModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeSourceSearchModal()">&times;</span>
+      <h3 id="sourceSearchTitle">Source Code Search Results</h3>
+      <div id="sourceSearchBody" style="max-height: 600px; overflow-y: auto;"></div>
     </div>
   </div>
 
@@ -1312,6 +1332,18 @@
             value = `<a href="#" onclick="openWorkflowFromRoles(${value}, '${row.Workflow}')" style="color: blue; text-decoration: underline;">${value}</a>`;
           }
           
+          // Make Summary clickable for logs
+          if (tableType === 'logs' && header === 'Summary' && value !== 'NULL' && value !== null) {
+            const escapedValue = value.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+            value = `<a href="#" onclick="searchInSource('${escapedValue}')" style="color: blue; text-decoration: underline; cursor: pointer;">${value}</a>`;
+          }
+          
+          // Make Origin clickable for logs
+          if (tableType === 'logs' && header === 'Origin' && value !== 'NULL' && value !== null) {
+            const escapedValue = value.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+            value = `<a href="#" onclick="searchInSource('${escapedValue}')" style="color: blue; text-decoration: underline; cursor: pointer;">${value}</a>`;
+          }
+          
 
           
           html += `<td class="${colClass}" title="${row[header]}">${value}</td>`;
@@ -1651,7 +1683,54 @@
       closeAllMenus();
       setDefaultLogsDates();
       loadLogLevelFilter();
+      loadSolutionPath();
       document.getElementById('logsResults').innerHTML = 'Apply filters to load logs.';
+    }
+    
+    async function loadSolutionPath() {
+      try {
+        const result = await ipcRenderer.invoke('load-solution-path');
+        if (result.success) {
+          document.getElementById('solutionPath').value = result.path || '';
+        }
+      } catch (error) {
+        console.error('Failed to load solution path:', error);
+      }
+    }
+    
+    function browseSolutionPath() {
+      const { dialog } = require('electron').remote || require('@electron/remote');
+      if (dialog) {
+        const result = dialog.showOpenDialogSync({
+          properties: ['openDirectory'],
+          title: 'Select Solution Directory'
+        });
+        
+        if (result && result.length > 0) {
+          document.getElementById('solutionPath').value = result[0];
+        }
+      } else {
+        alert('Directory browser not available. Please enter the path manually.');
+      }
+    }
+    
+    async function saveSolutionPath() {
+      const path = document.getElementById('solutionPath').value;
+      if (!path) {
+        alert('Please enter a solution path');
+        return;
+      }
+      
+      try {
+        const result = await ipcRenderer.invoke('save-solution-path', path);
+        if (result.success) {
+          alert('Solution path saved successfully!');
+        } else {
+          alert(`Failed to save solution path: ${result.error}`);
+        }
+      } catch (error) {
+        alert(`Error saving solution path: ${error.message}`);
+      }
     }
     
     async function loadLogLevelFilter() {
@@ -2888,11 +2967,63 @@ ${bodyContent}`;
       }
     }
     
+    async function searchInSource(searchText) {
+      if (!searchText || searchText === 'NULL') {
+        alert('No search text available');
+        return;
+      }
+      
+      document.getElementById('sourceSearchTitle').textContent = `Searching for: "${searchText}"`;
+      document.getElementById('sourceSearchBody').innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner"></div><p>Searching source files...</p></div>';
+      document.getElementById('sourceSearchModal').style.display = 'block';
+      
+      try {
+        const result = await ipcRenderer.invoke('search-source-files', searchText);
+        
+        if (result.success) {
+          if (result.results && result.results.length > 0) {
+            let html = `<p><strong>${result.results.length} matches found:</strong></p>`;
+            
+            result.results.forEach((match, index) => {
+              html += `<div style="background: white; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 15px; padding: 15px;">`;
+              html += `<h4 style="color: #667eea; margin: 0 0 10px 0;">${match.file.replace(/\\/g, '/')}</h4>`;
+              html += `<p style="margin: 5px 0; color: #666;"><strong>Line ${match.line}:</strong></p>`;
+              html += `<div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 10px; font-family: monospace; font-size: 12px;">`;
+              
+              match.context.forEach(contextLine => {
+                const bgColor = contextLine.isMatch ? '#fff3cd' : 'transparent';
+                const fontWeight = contextLine.isMatch ? 'bold' : 'normal';
+                html += `<div style="background: ${bgColor}; padding: 2px 5px; font-weight: ${fontWeight};"><span style="color: #666; margin-right: 10px;">${contextLine.lineNumber}:</span>${contextLine.content || ''}</div>`;
+              });
+              
+              html += `</div></div>`;
+            });
+            
+            document.getElementById('sourceSearchBody').innerHTML = html;
+          } else {
+            document.getElementById('sourceSearchBody').innerHTML = '<p>No matches found in source files.</p>';
+          }
+        } else {
+          document.getElementById('sourceSearchBody').innerHTML = `<div class="error">Search failed: ${result.error}</div>`;
+        }
+      } catch (error) {
+        document.getElementById('sourceSearchBody').innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+    
+    function closeSourceSearchModal() {
+      document.getElementById('sourceSearchModal').style.display = 'none';
+    }
+    
     // Close modal when clicking outside of it
     window.onclick = function(event) {
-      const modal = document.getElementById('bodyModal');
-      if (event.target === modal) {
+      const bodyModal = document.getElementById('bodyModal');
+      const sourceModal = document.getElementById('sourceSearchModal');
+      if (event.target === bodyModal) {
         closeBodyModal();
+      }
+      if (event.target === sourceModal) {
+        closeSourceSearchModal();
       }
     }
     

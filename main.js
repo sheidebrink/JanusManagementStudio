@@ -274,3 +274,92 @@ ipcMain.handle('analyze-with-ai', async (event, prompt) => {
     return { success: false, error: error.message };
   }
 });
+
+// Solution path configuration
+ipcMain.handle('save-solution-path', async (event, path) => {
+  try {
+    const configPath = require('path').join(require('os').homedir(), '.janus-config.json');
+    let config = {};
+    
+    try {
+      const configData = fs.readFileSync(configPath, 'utf8');
+      config = JSON.parse(configData);
+    } catch (err) {
+      // Config file doesn't exist, start with empty config
+    }
+    
+    config.solutionPath = path;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving solution path:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('load-solution-path', async (event) => {
+  try {
+    const configPath = require('path').join(require('os').homedir(), '.janus-config.json');
+    const configData = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(configData);
+    
+    return { success: true, path: config.solutionPath || '' };
+  } catch (error) {
+    return { success: true, path: '' };
+  }
+});
+
+ipcMain.handle('search-source-files', async (event, searchText) => {
+  try {
+    const configPath = require('path').join(require('os').homedir(), '.janus-config.json');
+    const configData = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(configData);
+    
+    if (!config.solutionPath) {
+      return { success: false, error: 'Solution path not configured' };
+    }
+    
+    const results = [];
+    const searchInDirectory = (dir) => {
+      const files = fs.readdirSync(dir);
+      
+      for (const file of files) {
+        const filePath = require('path').join(dir, file);
+        const stat = fs.statSync(filePath);
+        
+        if (stat.isDirectory() && !file.startsWith('.') && file !== 'bin' && file !== 'obj') {
+          searchInDirectory(filePath);
+        } else if (file.endsWith('.cs')) {
+          try {
+            const content = fs.readFileSync(filePath, 'utf8');
+            const lines = content.split('\n');
+            
+            lines.forEach((line, index) => {
+              if (line.toLowerCase().includes(searchText.toLowerCase())) {
+                results.push({
+                  file: filePath,
+                  line: index + 1,
+                  content: line.trim(),
+                  context: lines.slice(Math.max(0, index - 2), index + 3).map((l, i) => ({
+                    lineNumber: Math.max(0, index - 2) + i + 1,
+                    content: l.trim(),
+                    isMatch: i === 2
+                  }))
+                });
+              }
+            });
+          } catch (err) {
+            // Skip files that can't be read
+          }
+        }
+      }
+    };
+    
+    searchInDirectory(config.solutionPath);
+    
+    return { success: true, results: results.slice(0, 50) }; // Limit to 50 results
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
