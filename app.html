@@ -850,6 +850,30 @@
       return html;
     }
     
+    function createRolesTable(data) {
+      if (!data || data.length === 0) return '';
+      
+      const headers = Object.keys(data[0]).filter(h => h !== 'RowNum'); // Exclude RowNum from display
+      let html = '<table class="roles-table"><thead><tr>';
+      
+      headers.forEach(header => {
+        html += `<th onclick="sortRoles('${header}')" style="cursor: pointer;">${header} ${rolesSortField === header ? (rolesSortOrder === 'ASC' ? '↑' : '↓') : ''}</th>`;
+      });
+      html += '</tr></thead><tbody>';
+      
+      data.forEach(row => {
+        html += '<tr>';
+        headers.forEach(header => {
+          const value = row[header] !== null ? row[header] : 'NULL';
+          html += `<td>${value}</td>`;
+        });
+        html += '</tr>';
+      });
+      
+      html += '</tbody></table>';
+      return html;
+    }
+    
     async function setTenant(tenantId, tenantName) {
       try {
         await ipcRenderer.invoke('set-tenant', tenantId, tenantName);
@@ -2775,13 +2799,42 @@
     }
     
     async function loadRolesFilterOptions() {
-      // Disable roles page functionality since System_Roles_Workflows_View doesn't exist
-      document.getElementById('rolesTenantFilter').innerHTML = '<option>View not available</option>';
-      document.getElementById('rolesRoleFilter').innerHTML = '<option>View not available</option>';
-      document.getElementById('rolesModuleFilter').innerHTML = '<option>View not available</option>';
-      document.getElementById('rolesFunctionFilter').innerHTML = '<option>View not available</option>';
-      document.getElementById('rolesWorkflowFilter').innerHTML = '<option>View not available</option>';
-      document.getElementById('rolesLastNameFilter').innerHTML = '<option>View not available</option>';
+      try {
+        // Load distinct values for filters
+        const tenantResult = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Tenant FROM System_Roles_Workflows_View ORDER BY Tenant');
+        const roleResult = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Role FROM System_Roles_Workflows_View ORDER BY Role');
+        const moduleResult = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Module FROM System_Roles_Workflows_View ORDER BY Module');
+        const functionResult = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT [Function] FROM System_Roles_Workflows_View ORDER BY [Function]');
+        const workflowResult = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT Workflow FROM System_Roles_Workflows_View ORDER BY Workflow');
+        const lastNameResult = await ipcRenderer.invoke('execute-query', 'SELECT DISTINCT LastName FROM System_Roles_Workflows_View ORDER BY LastName');
+        
+        if (tenantResult.success) {
+          populateSelect('rolesTenantFilter', tenantResult.data, 'Tenant');
+        }
+        if (roleResult.success) {
+          populateSelect('rolesRoleFilter', roleResult.data, 'Role');
+        }
+        if (moduleResult.success) {
+          populateSelect('rolesModuleFilter', moduleResult.data, 'Module');
+        }
+        if (functionResult.success) {
+          populateSelect('rolesFunctionFilter', functionResult.data, 'Function');
+        }
+        if (workflowResult.success) {
+          populateSelect('rolesWorkflowFilter', workflowResult.data, 'Workflow');
+        }
+        if (lastNameResult.success) {
+          populateSelect('rolesLastNameFilter', lastNameResult.data, 'LastName');
+        }
+      } catch (error) {
+        console.error('Error loading roles filter options:', error);
+        document.getElementById('rolesTenantFilter').innerHTML = '<option>Error loading options</option>';
+        document.getElementById('rolesRoleFilter').innerHTML = '<option>Error loading options</option>';
+        document.getElementById('rolesModuleFilter').innerHTML = '<option>Error loading options</option>';
+        document.getElementById('rolesFunctionFilter').innerHTML = '<option>Error loading options</option>';
+        document.getElementById('rolesWorkflowFilter').innerHTML = '<option>Error loading options</option>';
+        document.getElementById('rolesLastNameFilter').innerHTML = '<option>Error loading options</option>';
+      }
     }
     
     let currentRolesPage = 1;
@@ -2831,11 +2884,29 @@
       resultsDiv.innerHTML = 'Loading roles...';
       
       try {
-        // System_Roles_Workflows_View doesn't exist, show message instead
-        const result = { success: true, data: [] };
+        const query = `
+          SELECT * FROM (
+            SELECT *, ROW_NUMBER() OVER (ORDER BY ${rolesSortField} ${rolesSortOrder}) as RowNum
+            FROM System_Roles_Workflows_View
+            ${whereClause}
+          ) AS PagedResults
+          WHERE RowNum BETWEEN ${offset + 1} AND ${offset + 100}
+        `;
         
-        resultsDiv.innerHTML = '<div class="error">System_Roles_Workflows_View does not exist in the database. This view needs to be created to display roles data.</div>';
-        paginationDiv.innerHTML = '';
+        const result = await ipcRenderer.invoke('execute-query', query);
+        
+        if (result.success) {
+          if (result.data && result.data.length > 0) {
+            resultsDiv.innerHTML = createRolesTable(result.data);
+            updateRolesPagination(page, result.data.length === 100);
+          } else {
+            resultsDiv.innerHTML = '<div>No roles found matching the current filters.</div>';
+            paginationDiv.innerHTML = '';
+          }
+        } else {
+          resultsDiv.innerHTML = `<div class="error">Database Error: ${result.error}</div>`;
+          paginationDiv.innerHTML = '';
+        }
       } catch (error) {
         resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
       }
@@ -2854,6 +2925,16 @@
       }
       
       paginationDiv.innerHTML = html;
+    }
+    
+    function sortRoles(field) {
+      if (rolesSortField === field) {
+        rolesSortOrder = rolesSortOrder === 'ASC' ? 'DESC' : 'ASC';
+      } else {
+        rolesSortField = field;
+        rolesSortOrder = 'ASC';
+      }
+      loadRoles(currentRolesPage);
     }
     
     function clearRolesFilters() {
