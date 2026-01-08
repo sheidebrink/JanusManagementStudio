@@ -281,13 +281,19 @@
         <div onclick="showLogsPage(); closeAllMenus()">📄 Logs</div>
         <div onclick="showRolesPage(); closeAllMenus()">🔑 Roles</div>
         <div onclick="showModulesPage(); closeAllMenus()">📦 Modules</div>
-        <div onclick="showDataDictionaryPage(); closeAllMenus()">📚 Data Dictionary</div>
       </div>
     </div>
     <div class="menu-item" onclick="toggleMenu('manageMenu')">
       📋 Manage
       <div id="manageMenu" class="dropdown">
         <div onclick="showWorkflowsPage(); closeAllMenus()">🔄 Workflows</div>
+      </div>
+    </div>
+    <div class="menu-item" onclick="toggleMenu('databaseMenu')">
+      💾 Database
+      <div id="databaseMenu" class="dropdown">
+        <div onclick="showDataDictionaryPage(); closeAllMenus()">📚 Data Dictionary</div>
+        <div onclick="showQueryBuilderPage(); closeAllMenus()">🔧 Query Builder</div>
       </div>
     </div>
     <div class="menu-item" onclick="toggleMenu('devMenu')">
@@ -319,6 +325,8 @@
         <li><strong>System → Roles</strong> - View roles, workflows, and user assignments</li>
         <li><strong>System → Modules</strong> - View system modules</li>
         <li><strong>Manage → Workflows</strong> - View workflows for selected tenant</li>
+        <li><strong>Database → Data Dictionary</strong> - View database schema and ERD</li>
+        <li><strong>Database → Query Builder</strong> - Build queries visually by selecting tables and columns</li>
       </ul>
     </div>
   </div>
@@ -516,6 +524,46 @@
         <div style="margin-bottom: 10px; font-size: 12px; color: #666;">Drag tables to reposition. Lines show foreign key relationships.</div>
         <canvas id="erdCanvas" width="1200" height="800" style="border: 1px solid #ddd; background: white; cursor: move;"></canvas>
       </div>
+    </div>
+  </div>
+
+  <div id="queryBuilderPage" class="page">
+    <div class="query-section">
+      <h3>Database - Query Builder</h3>
+      
+      <div style="margin-bottom: 20px;">
+        <h4>1. Select Initial Table</h4>
+        <select id="initialTable" onchange="selectInitialTable()" style="width: 300px; padding: 5px;">
+          <option value="">Choose a table...</option>
+        </select>
+      </div>
+      
+      <div id="queryBuilderStack" style="display: none;">
+        <div id="selectedTablesStack"></div>
+        
+        <div style="margin: 20px 0; padding: 15px; border: 2px dashed #ddd; background: #f9f9f9;">
+          <h4>Add Related Table</h4>
+          <select id="relatedTablesDropdown" onchange="addTableFromDropdown()" style="width: 300px; padding: 5px;">
+            <option value="">Select a related table...</option>
+          </select>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+          <button onclick="generateQuery()">Generate Query</button>
+          <button onclick="executeQuery()">Execute Query</button>
+          <button onclick="clearQueryBuilder()">Clear All</button>
+        </div>
+      </div>
+      
+      <div style="margin-bottom: 20px;">
+        <h4>Generated SQL Query</h4>
+        <textarea id="generatedQuery" style="width: 100%; height: 150px; font-family: monospace;" readonly></textarea>
+      </div>
+    </div>
+    
+    <div class="results">
+      <h3>Query Results</h3>
+      <div id="queryBuilderResults">Execute a query to see results</div>
     </div>
   </div>
 
@@ -2295,6 +2343,254 @@
       isDragging = false;
       dragTable = null;
     });
+    
+    function showQueryBuilderPage() {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('queryBuilderPage').classList.add('active');
+      closeAllMenus();
+      loadInitialTables();
+    }
+    
+    let queryBuilderData = {
+      selectedTables: [],
+      selectedColumns: [],
+      allRelatedTables: []
+    };
+    
+    async function loadInitialTables() {
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_SCHEMA, TABLE_NAME`);
+        
+        const select = document.getElementById('initialTable');
+        select.innerHTML = '<option value="">Choose a table...</option>';
+        
+        if (result.success && result.data) {
+          result.data.forEach(table => {
+            const option = document.createElement('option');
+            option.value = `${table.TABLE_SCHEMA}.${table.TABLE_NAME}`;
+            option.textContent = `${table.TABLE_SCHEMA}.${table.TABLE_NAME}`;
+            select.appendChild(option);
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load tables:', error);
+      }
+    }
+    
+    async function selectInitialTable() {
+      const select = document.getElementById('initialTable');
+      const tableName = select.value;
+      
+      if (!tableName) return;
+      
+      queryBuilderData.selectedTables = [tableName];
+      queryBuilderData.selectedColumns = [];
+      
+      const [schema, table] = tableName.split('.');
+      await loadTableColumns(schema, table, tableName);
+      await loadAllRelatedTables();
+      
+      document.getElementById('queryBuilderStack').style.display = 'block';
+      updateStackDisplay();
+    }
+    
+    async function loadTableColumns(schema, table, fullTableName) {
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '${schema}' AND TABLE_NAME = '${table}' ORDER BY ORDINAL_POSITION`);
+        
+        if (result.success && result.data) {
+          result.data.forEach(col => {
+            queryBuilderData.selectedColumns.push({
+              table: fullTableName,
+              column: col.COLUMN_NAME,
+              dataType: col.DATA_TYPE,
+              selected: false
+            });
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load columns:', error);
+      }
+    }
+    
+    async function loadAllRelatedTables() {
+      const allTables = queryBuilderData.selectedTables;
+      const relatedSet = new Set();
+      
+      for (const tableName of allTables) {
+        const [schema, table] = tableName.split('.');
+        
+        try {
+          const result = await ipcRenderer.invoke('execute-query', 
+            `SELECT DISTINCT 
+               CASE WHEN tp.name = '${table}' THEN sr.name + '.' + tr.name 
+                    ELSE sp.name + '.' + tp.name END as RELATED_TABLE
+             FROM sys.foreign_keys fk
+             INNER JOIN sys.tables tp ON fk.parent_object_id = tp.object_id
+             INNER JOIN sys.schemas sp ON tp.schema_id = sp.schema_id
+             INNER JOIN sys.tables tr ON fk.referenced_object_id = tr.object_id
+             INNER JOIN sys.schemas sr ON tr.schema_id = sr.schema_id
+             WHERE (tp.name = '${table}' AND sp.name = '${schema}') OR (tr.name = '${table}' AND sr.name = '${schema}')`);
+          
+          if (result.success && result.data) {
+            result.data.forEach(rel => {
+              if (!allTables.includes(rel.RELATED_TABLE)) {
+                relatedSet.add(rel.RELATED_TABLE);
+              }
+            });
+          }
+        } catch (error) {
+          console.error('Failed to load related tables:', error);
+        }
+      }
+      
+      queryBuilderData.allRelatedTables = Array.from(relatedSet);
+      updateRelatedTablesDropdown();
+    }
+    
+    function updateRelatedTablesDropdown() {
+      const select = document.getElementById('relatedTablesDropdown');
+      select.innerHTML = '<option value="">Select a related table...</option>';
+      
+      queryBuilderData.allRelatedTables.forEach(table => {
+        const option = document.createElement('option');
+        option.value = table;
+        option.textContent = table;
+        select.appendChild(option);
+      });
+    }
+    
+    async function addTableFromDropdown() {
+      const select = document.getElementById('relatedTablesDropdown');
+      const tableName = select.value;
+      
+      if (!tableName || queryBuilderData.selectedTables.includes(tableName)) {
+        select.value = '';
+        return;
+      }
+      
+      queryBuilderData.selectedTables.push(tableName);
+      const [schema, table] = tableName.split('.');
+      await loadTableColumns(schema, table, tableName);
+      await loadAllRelatedTables();
+      
+      select.value = '';
+      updateStackDisplay();
+    }
+    
+    function updateStackDisplay() {
+      const stackDiv = document.getElementById('selectedTablesStack');
+      let html = '';
+      
+      queryBuilderData.selectedTables.forEach((tableName, tableIndex) => {
+        html += `<div style="margin-bottom: 20px; border: 1px solid #ddd; border-radius: 5px; background: white;">`;
+        html += `<div style="background: #667eea; color: white; padding: 10px; font-weight: bold; display: flex; justify-content: space-between; align-items: center;">`;
+        html += `<span>${tableName}</span>`;
+        if (tableIndex > 0) {
+          html += `<button onclick="removeTable('${tableName}')" style="background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">Remove</button>`;
+        }
+        html += `</div>`;
+        html += `<div style="padding: 15px;">`;
+        
+        const tableColumns = queryBuilderData.selectedColumns.filter(col => col.table === tableName);
+        tableColumns.forEach(col => {
+          const checked = col.selected ? 'checked' : '';
+          html += `<div style="margin: 8px 0; padding: 5px; background: #f8f9fa; border-radius: 3px;">`;
+          html += `<label style="display: flex; align-items: center; cursor: pointer;">`;
+          html += `<input type="checkbox" ${checked} onchange="toggleColumn('${tableName}', '${col.column}')" style="margin-right: 10px;">`;
+          html += `<span style="font-weight: bold;">${col.column}</span>`;
+          html += `<span style="margin-left: 10px; color: #666; font-size: 12px;">(${col.dataType})</span>`;
+          html += `</label></div>`;
+        });
+        
+        html += `</div></div>`;
+      });
+      
+      stackDiv.innerHTML = html;
+    }
+    
+    function removeTable(tableName) {
+      queryBuilderData.selectedTables = queryBuilderData.selectedTables.filter(t => t !== tableName);
+      queryBuilderData.selectedColumns = queryBuilderData.selectedColumns.filter(col => col.table !== tableName);
+      loadAllRelatedTables();
+      updateStackDisplay();
+    }
+    
+    function toggleColumn(tableName, columnName) {
+      const col = queryBuilderData.selectedColumns.find(c => c.table === tableName && c.column === columnName);
+      if (col) {
+        col.selected = !col.selected;
+      }
+    }
+    
+    function clearQueryBuilder() {
+      queryBuilderData = {
+        selectedTables: [],
+        selectedColumns: [],
+        allRelatedTables: []
+      };
+      document.getElementById('initialTable').value = '';
+      document.getElementById('queryBuilderStack').style.display = 'none';
+      document.getElementById('generatedQuery').value = '';
+      document.getElementById('queryBuilderResults').innerHTML = 'Execute a query to see results';
+    }
+    
+    function generateQuery() {
+      const selectedCols = queryBuilderData.selectedColumns.filter(col => col.selected);
+      
+      if (selectedCols.length === 0 || queryBuilderData.selectedTables.length === 0) {
+        alert('Please select at least one table and one column');
+        return;
+      }
+      
+      // Create table aliases (a, b, c, etc.)
+      const tableAliases = {};
+      queryBuilderData.selectedTables.forEach((table, index) => {
+        tableAliases[table] = String.fromCharCode(97 + index); // a, b, c...
+      });
+      
+      let query = 'SELECT TOP 100\n  ';
+      query += selectedCols.map(col => `${tableAliases[col.table]}.${col.column}`).join(',\n  ');
+      query += '\nFROM ' + queryBuilderData.selectedTables[0] + ' ' + tableAliases[queryBuilderData.selectedTables[0]];
+      
+      // Add JOINs for additional tables (basic cross join for now)
+      for (let i = 1; i < queryBuilderData.selectedTables.length; i++) {
+        const table = queryBuilderData.selectedTables[i];
+        query += `\n  CROSS JOIN ${table} ${tableAliases[table]}`;
+      }
+      
+      document.getElementById('generatedQuery').value = query;
+    }
+    
+    async function executeQuery() {
+      const query = document.getElementById('generatedQuery').value;
+      if (!query) {
+        alert('Please generate a query first');
+        return;
+      }
+      
+      const resultsDiv = document.getElementById('queryBuilderResults');
+      resultsDiv.innerHTML = 'Executing query...';
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', query);
+        
+        if (result.success) {
+          if (result.data && result.data.length > 0) {
+            const table = createTable(result.data);
+            resultsDiv.innerHTML = `<p>${result.data.length} rows returned.</p>${table}`;
+          } else {
+            resultsDiv.innerHTML = '<p>No results found.</p>';
+          }
+        } else {
+          resultsDiv.innerHTML = `<div class="error">Query failed: ${result.error}</div>`;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
     
     async function loadModules() {
       const resultsDiv = document.getElementById('modulesResults');
