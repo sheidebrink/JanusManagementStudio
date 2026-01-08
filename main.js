@@ -310,6 +310,16 @@ ipcMain.handle('load-solution-path', async (event) => {
   }
 });
 
+ipcMain.handle('open-external-url', async (event, url) => {
+  try {
+    const { shell } = require('electron');
+    await shell.openExternal(url);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('search-source-files', async (event, searchText) => {
   try {
     const configPath = require('path').join(require('os').homedir(), '.janus-config.json');

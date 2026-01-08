@@ -281,6 +281,7 @@
         <div onclick="showLogsPage(); closeAllMenus()">📄 Logs</div>
         <div onclick="showRolesPage(); closeAllMenus()">🔑 Roles</div>
         <div onclick="showModulesPage(); closeAllMenus()">📦 Modules</div>
+        <div onclick="showDataDictionaryPage(); closeAllMenus()">📚 Data Dictionary</div>
       </div>
     </div>
     <div class="menu-item" onclick="toggleMenu('manageMenu')">
@@ -415,6 +416,12 @@
   <div id="logsPage" class="page">
     <div class="query-section">
       <h3>System - Logs</h3>
+      <div style="background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #2196f3;">
+        <h4 style="margin: 0 0 10px 0; color: #1976d2;">📚 Log Levels Guide for Developers</h4>
+        <div style="font-size: 12px; line-height: 1.4;">
+          <strong>Trace:</strong> Very detailed info for diagnosing issues • <strong>Debug:</strong> Info useful during development • <strong>Information:</strong> General app flow tracking • <strong>Warning:</strong> Unexpected but recoverable events • <strong>Error:</strong> Exceptions and failures • <strong>Critical:</strong> Serious failures requiring immediate attention
+        </div>
+      </div>
       <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 15px; border: 1px solid #dee2e6;">
         <h4 style="margin: 0 0 10px 0;">Solution Path Configuration</h4>
         <div style="display: flex; gap: 10px; align-items: flex-end;">
@@ -452,6 +459,12 @@
     <div class="results">
       <h3>System Logs</h3>
       <div id="logsResults">Loading logs...</div>
+      
+      <div style="margin-top: 30px; width: 100%; position: relative;">
+        <h4>Log Levels Distribution</h4>
+        <canvas id="logLevelsChart" width="800" height="400"></canvas>
+      </div>
+      <div id="logChartTooltip" class="chart-tooltip"></div>
     </div>
   </div>
 
@@ -464,6 +477,45 @@
     <div class="results">
       <h3>System Modules</h3>
       <div id="modulesResults">Loading modules...</div>
+    </div>
+  </div>
+
+  <div id="dataDictionaryPage" class="page">
+    <div class="query-section">
+      <h3>System - Data Dictionary</h3>
+      <button onclick="loadDataDictionary()">Generate Data Dictionary</button>
+      <button onclick="loadERD()">Show ERD</button>
+      <button onclick="exportDataDictionary()">Export to HTML</button>
+    </div>
+    
+    <div class="results">
+      <div class="workflow-tabs">
+        <button class="tab-button active" onclick="showDictionaryTab('dictionary')">Data Dictionary</button>
+        <button class="tab-button" onclick="showDictionaryTab('erd')">ERD</button>
+      </div>
+      
+      <div id="dictionaryTab" class="tab-content active">
+        <h3>Database Schema Documentation</h3>
+        <div style="margin-bottom: 15px;">
+          <label style="font-weight: bold;">Schema Filter:</label>
+          <select id="dictionarySchemaFilter" onchange="loadDataDictionary()" style="margin-left: 10px; padding: 5px;">
+            <option value="">All Schemas</option>
+          </select>
+        </div>
+        <div id="dataDictionaryResults">Click "Generate Data Dictionary" to load database schema information.</div>
+      </div>
+      
+      <div id="erdTab" class="tab-content">
+        <h3>Entity Relationship Diagram</h3>
+        <div style="margin-bottom: 15px;">
+          <label style="font-weight: bold;">Schema Filter:</label>
+          <select id="schemaFilter" onchange="loadERD()" style="margin-left: 10px; padding: 5px;">
+            <option value="">All Schemas</option>
+          </select>
+        </div>
+        <div style="margin-bottom: 10px; font-size: 12px; color: #666;">Drag tables to reposition. Lines show foreign key relationships.</div>
+        <canvas id="erdCanvas" width="1200" height="800" style="border: 1px solid #ddd; background: white; cursor: move;"></canvas>
+      </div>
     </div>
   </div>
 
@@ -1191,7 +1243,7 @@
     }
     
     let currentTrackingPage = 1;
-    let trackingSortField = 'sut.CreatedDate';
+    let trackingSortField = 'sut.Id';
     let trackingSortOrder = 'DESC';
     
     async function loadUserTracking(page = 1) {
@@ -1342,6 +1394,26 @@
           if (tableType === 'logs' && header === 'Origin' && value !== 'NULL' && value !== null) {
             const escapedValue = value.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
             value = `<a href="#" onclick="searchInSource('${escapedValue}')" style="color: blue; text-decoration: underline; cursor: pointer;">${value}</a>`;
+          }
+          
+          // Color code LogLevel cells
+          if (tableType === 'logs' && header === 'LogLevel' && value !== 'NULL' && value !== null) {
+            const colors = {
+              'Trace': '#6c757d',
+              'Debug': '#17a2b8', 
+              'Information': '#28a745',
+              'Warning': '#ffc107',
+              'Error': '#dc3545',
+              'Critical': '#6f42c1'
+            };
+            const color = colors[value] || '#333';
+            value = `<span style="background: ${color}; color: white; padding: 4px 8px; border-radius: 3px; font-weight: bold;">${value}</span>`;
+          }
+          
+          // Make Path clickable for user tracking
+          if (tableType === 'tracking' && header === 'Path' && value !== 'NULL' && value !== null) {
+            const escapedValue = value.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+            value = `<a href="#" onclick="openExternalUrl('${escapedValue}')" style="color: blue; text-decoration: underline; cursor: pointer;">${value}</a>`;
           }
           
 
@@ -1764,7 +1836,7 @@
     }
     
     let currentLogsPage = 1;
-    let logsSortField = 'CreatedDate';
+    let logsSortField = 'Id';
     let logsSortOrder = 'DESC';
     
     async function loadLogs(page = 1) {
@@ -1814,9 +1886,13 @@
             // Update pagination
             const hasMore = result.data.length === 100;
             updateLogsPagination(page, hasMore);
+            
+            // Load log levels chart
+            await loadLogLevelsChart();
           } else {
             resultsDiv.innerHTML = '<p>No logs found.</p>';
             paginationDiv.innerHTML = '';
+            clearLogLevelsChart();
           }
         } else {
           resultsDiv.innerHTML = `<div class="error">Failed to load logs: ${result.error}</div>`;
@@ -1865,6 +1941,360 @@
       closeAllMenus();
       loadModules();
     }
+    
+    function showDataDictionaryPage() {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('dataDictionaryPage').classList.add('active');
+      closeAllMenus();
+      loadSchemaFilter();
+    }
+    
+    async function loadSchemaFilter() {
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT DISTINCT TABLE_SCHEMA FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_SCHEMA`);
+        
+        const erdSelect = document.getElementById('schemaFilter');
+        const dictSelect = document.getElementById('dictionarySchemaFilter');
+        
+        [erdSelect, dictSelect].forEach(select => {
+          select.innerHTML = '<option value="">All Schemas</option>';
+          
+          if (result.success && result.data) {
+            result.data.forEach(row => {
+              const option = document.createElement('option');
+              option.value = row.TABLE_SCHEMA;
+              option.textContent = row.TABLE_SCHEMA;
+              select.appendChild(option);
+            });
+          }
+        });
+      } catch (error) {
+        console.error('Failed to load schemas:', error);
+      }
+    }
+    
+    async function loadDataDictionary() {
+      const resultsDiv = document.getElementById('dataDictionaryResults');
+      resultsDiv.innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner"></div><p>Generating data dictionary...</p></div>';
+      
+      const selectedSchema = document.getElementById('dictionarySchemaFilter').value;
+      let schemaFilter = '';
+      if (selectedSchema) {
+        schemaFilter = ` AND t.TABLE_SCHEMA = '${selectedSchema}'`;
+      }
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT 
+             t.TABLE_SCHEMA,
+             t.TABLE_NAME,
+             c.COLUMN_NAME,
+             c.DATA_TYPE,
+             c.CHARACTER_MAXIMUM_LENGTH,
+             c.IS_NULLABLE,
+             c.COLUMN_DEFAULT,
+             CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 'YES' ELSE 'NO' END as IS_PRIMARY_KEY
+           FROM INFORMATION_SCHEMA.TABLES t
+           INNER JOIN INFORMATION_SCHEMA.COLUMNS c ON t.TABLE_NAME = c.TABLE_NAME AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
+           LEFT JOIN (
+             SELECT ku.TABLE_SCHEMA, ku.TABLE_NAME, ku.COLUMN_NAME
+             FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+             INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+             WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+           ) pk ON c.TABLE_SCHEMA = pk.TABLE_SCHEMA AND c.TABLE_NAME = pk.TABLE_NAME AND c.COLUMN_NAME = pk.COLUMN_NAME
+           WHERE t.TABLE_TYPE = 'BASE TABLE'${schemaFilter}
+           ORDER BY t.TABLE_SCHEMA, t.TABLE_NAME, c.ORDINAL_POSITION`);
+        
+        if (result.success && result.data) {
+          const html = createDataDictionaryHTML(result.data);
+          resultsDiv.innerHTML = html;
+        } else {
+          resultsDiv.innerHTML = `<div class="error">Failed to load data dictionary: ${result.error}</div>`;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+    
+    function createDataDictionaryHTML(data) {
+      const tables = {};
+      
+      data.forEach(row => {
+        const key = `${row.TABLE_SCHEMA}.${row.TABLE_NAME}`;
+        if (!tables[key]) {
+          tables[key] = {
+            schema: row.TABLE_SCHEMA,
+            name: row.TABLE_NAME,
+            columns: []
+          };
+        }
+        tables[key].columns.push(row);
+      });
+      
+      let html = `<div style="margin-bottom: 20px;"><strong>Total Tables:</strong> ${Object.keys(tables).length}</div>`;
+      
+      Object.values(tables).forEach(table => {
+        html += `<div style="margin-bottom: 30px; border: 1px solid #ddd; border-radius: 5px; overflow: hidden;">`;
+        html += `<div style="background: #667eea; color: white; padding: 15px; font-weight: bold; font-size: 16px;">`;
+        html += `${table.schema}.${table.name} (${table.columns.length} columns)</div>`;
+        html += `<table style="width: 100%; margin: 0;"><thead style="background: #f8f9fa;"><tr>`;
+        html += `<th>Column</th><th>Type</th><th>Length</th><th>Nullable</th><th>Default</th><th>Primary Key</th></tr></thead><tbody>`;
+        
+        table.columns.forEach(col => {
+          const pkBadge = col.IS_PRIMARY_KEY === 'YES' ? '<span style="background: #dc3545; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px;">PK</span>' : '';
+          html += `<tr>`;
+          html += `<td><strong>${col.COLUMN_NAME}</strong> ${pkBadge}</td>`;
+          html += `<td>${col.DATA_TYPE}</td>`;
+          html += `<td>${col.CHARACTER_MAXIMUM_LENGTH || '-'}</td>`;
+          html += `<td>${col.IS_NULLABLE}</td>`;
+          html += `<td>${col.COLUMN_DEFAULT || '-'}</td>`;
+          html += `<td>${col.IS_PRIMARY_KEY}</td>`;
+          html += `</tr>`;
+        });
+        
+        html += `</tbody></table></div>`;
+      });
+      
+      return html;
+    }
+    
+    function exportDataDictionary() {
+      const content = document.getElementById('dataDictionaryResults').innerHTML;
+      if (!content || content.includes('Click "Generate Data Dictionary"')) {
+        alert('Please generate the data dictionary first');
+        return;
+      }
+      
+      const htmlContent = `<!DOCTYPE html>
+<html><head><title>Database Data Dictionary</title>
+<style>body{font-family:Arial,sans-serif;margin:20px;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ddd;padding:8px;text-align:left;}th{background:#f2f2f2;}</style>
+</head><body><h1>Database Data Dictionary</h1>${content}</body></html>`;
+      
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'data-dictionary.html';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    
+    function showDictionaryTab(tabName) {
+      document.querySelectorAll('#dataDictionaryPage .tab-content').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('#dataDictionaryPage .tab-button').forEach(btn => btn.classList.remove('active'));
+      
+      document.getElementById(`${tabName}Tab`).classList.add('active');
+      event.target.classList.add('active');
+    }
+    
+    let erdData = { tables: [], relationships: [] };
+    
+    async function loadERD() {
+      const selectedSchema = document.getElementById('schemaFilter').value;
+      let schemaFilter = '';
+      if (selectedSchema) {
+        schemaFilter = `AND s.name = '${selectedSchema}'`;
+      }
+      
+      try {
+        // Get foreign key relationships with schema filtering
+        const fkResult = await ipcRenderer.invoke('execute-query', 
+          `SELECT 
+             fk.name AS FK_NAME,
+             sp.name AS PARENT_SCHEMA,
+             tp.name AS PARENT_TABLE,
+             cp.name AS PARENT_COLUMN,
+             sr.name AS REFERENCED_SCHEMA,
+             tr.name AS REFERENCED_TABLE,
+             cr.name AS REFERENCED_COLUMN
+           FROM sys.foreign_keys fk
+           INNER JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+           INNER JOIN sys.tables tp ON fkc.parent_object_id = tp.object_id
+           INNER JOIN sys.schemas sp ON tp.schema_id = sp.schema_id
+           INNER JOIN sys.columns cp ON fkc.parent_object_id = cp.object_id AND fkc.parent_column_id = cp.column_id
+           INNER JOIN sys.tables tr ON fkc.referenced_object_id = tr.object_id
+           INNER JOIN sys.schemas sr ON tr.schema_id = sr.schema_id
+           INNER JOIN sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
+           WHERE 1=1 ${schemaFilter.replace('s.name', 'sp.name')} ${schemaFilter.replace('s.name', 'sr.name').replace('AND', 'OR')}`);
+        
+        // Get table info with schema filtering
+        let tableWhereClause = 'WHERE t.TABLE_TYPE = \'BASE TABLE\'';
+        if (selectedSchema) {
+          tableWhereClause += ` AND t.TABLE_SCHEMA = '${selectedSchema}'`;
+        }
+        
+        const tableResult = await ipcRenderer.invoke('execute-query', 
+          `SELECT t.TABLE_SCHEMA, t.TABLE_NAME, 
+                  c.COLUMN_NAME,
+                  CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 'PK' 
+                       WHEN fk.COLUMN_NAME IS NOT NULL THEN 'FK' 
+                       ELSE '' END as KEY_TYPE
+           FROM INFORMATION_SCHEMA.TABLES t
+           INNER JOIN INFORMATION_SCHEMA.COLUMNS c ON t.TABLE_NAME = c.TABLE_NAME AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
+           LEFT JOIN (
+             SELECT ku.TABLE_SCHEMA, ku.TABLE_NAME, ku.COLUMN_NAME
+             FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+             INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+             WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+           ) pk ON c.TABLE_SCHEMA = pk.TABLE_SCHEMA AND c.TABLE_NAME = pk.TABLE_NAME AND c.COLUMN_NAME = pk.COLUMN_NAME
+           LEFT JOIN (
+             SELECT ku.TABLE_SCHEMA, ku.TABLE_NAME, ku.COLUMN_NAME
+             FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+             INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+             WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
+           ) fk ON c.TABLE_SCHEMA = fk.TABLE_SCHEMA AND c.TABLE_NAME = fk.TABLE_NAME AND c.COLUMN_NAME = fk.COLUMN_NAME
+           ${tableWhereClause}
+           ORDER BY t.TABLE_SCHEMA, t.TABLE_NAME, c.ORDINAL_POSITION`);
+        
+        if (tableResult.success && tableResult.data) {
+          // Group columns by table
+          const tablesMap = {};
+          tableResult.data.forEach(row => {
+            const key = `${row.TABLE_SCHEMA}.${row.TABLE_NAME}`;
+            if (!tablesMap[key]) {
+              tablesMap[key] = {
+                schema: row.TABLE_SCHEMA,
+                name: row.TABLE_NAME,
+                fullName: key,
+                columns: []
+              };
+            }
+            tablesMap[key].columns.push({
+              name: row.COLUMN_NAME,
+              keyType: row.KEY_TYPE
+            });
+          });
+          
+          erdData.tables = Object.values(tablesMap).map((table, index) => ({
+            ...table,
+            x: 100 + (index % 5) * 220,
+            y: 100 + Math.floor(index / 5) * 200
+          }));
+          
+          erdData.relationships = fkResult.success ? fkResult.data : [];
+          drawERD();
+        }
+      } catch (error) {
+        console.error('Failed to load ERD:', error);
+      }
+    }
+    
+    function drawERD() {
+      const canvas = document.getElementById('erdCanvas');
+      const ctx = canvas.getContext('2d');
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw relationships first (behind tables)
+      ctx.strokeStyle = '#666';
+      ctx.lineWidth = 1;
+      erdData.relationships.forEach(rel => {
+        const parentTable = erdData.tables.find(t => t.fullName === `${rel.PARENT_SCHEMA}.${rel.PARENT_TABLE}`);
+        const refTable = erdData.tables.find(t => t.fullName === `${rel.REFERENCED_SCHEMA}.${rel.REFERENCED_TABLE}`);
+        
+        if (parentTable && refTable) {
+          ctx.beginPath();
+          ctx.moveTo(parentTable.x + 90, parentTable.y + 15);
+          ctx.lineTo(refTable.x + 90, refTable.y + 15);
+          ctx.stroke();
+        }
+      });
+      
+      // Draw tables
+      erdData.tables.forEach(table => {
+        const maxColumns = 8; // Limit visible columns
+        const visibleColumns = table.columns.slice(0, maxColumns);
+        const tableHeight = 30 + (visibleColumns.length * 16) + (table.columns.length > maxColumns ? 16 : 0);
+        
+        // Table header
+        ctx.fillStyle = '#667eea';
+        ctx.fillRect(table.x, table.y, 200, 30);
+        
+        // Table name with schema
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 11px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(table.fullName, table.x + 100, table.y + 20);
+        
+        // Table body
+        ctx.fillStyle = '#f8f9fa';
+        ctx.fillRect(table.x, table.y + 30, 200, tableHeight - 30);
+        
+        // Draw columns
+        ctx.fillStyle = '#333';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'left';
+        
+        visibleColumns.forEach((col, index) => {
+          const y = table.y + 45 + (index * 16);
+          
+          // Column name
+          ctx.fillText(col.name, table.x + 5, y);
+          
+          // Key type badge
+          if (col.keyType) {
+            const badgeColor = col.keyType === 'PK' ? '#dc3545' : '#ffc107';
+            ctx.fillStyle = badgeColor;
+            ctx.fillRect(table.x + 150, y - 10, 20, 12);
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 8px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(col.keyType, table.x + 160, y - 2);
+            ctx.fillStyle = '#333';
+            ctx.font = '10px Arial';
+            ctx.textAlign = 'left';
+          }
+        });
+        
+        // Show "..." if more columns exist
+        if (table.columns.length > maxColumns) {
+          ctx.fillStyle = '#666';
+          ctx.font = '10px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(`... ${table.columns.length - maxColumns} more`, table.x + 100, table.y + tableHeight - 5);
+        }
+        
+        // Store table height for drag detection
+        table.height = tableHeight;
+      });
+    }
+    
+    // Add drag functionality
+    let isDragging = false;
+    let dragTable = null;
+    let dragOffset = { x: 0, y: 0 };
+    
+    document.getElementById('erdCanvas').addEventListener('mousedown', (e) => {
+      const rect = e.target.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      const table = erdData.tables.find(t => 
+        x >= t.x && x <= t.x + 200 && y >= t.y && y <= t.y + (t.height || 50)
+      );
+      
+      if (table) {
+        isDragging = true;
+        dragTable = table;
+        dragOffset.x = x - table.x;
+        dragOffset.y = y - table.y;
+      }
+    });
+    
+    document.getElementById('erdCanvas').addEventListener('mousemove', (e) => {
+      if (isDragging && dragTable) {
+        const rect = e.target.getBoundingClientRect();
+        dragTable.x = e.clientX - rect.left - dragOffset.x;
+        dragTable.y = e.clientY - rect.top - dragOffset.y;
+        drawERD();
+      }
+    });
+    
+    document.getElementById('erdCanvas').addEventListener('mouseup', () => {
+      isDragging = false;
+      dragTable = null;
+    });
     
     async function loadModules() {
       const resultsDiv = document.getElementById('modulesResults');
@@ -3013,6 +3443,100 @@ ${bodyContent}`;
     
     function closeSourceSearchModal() {
       document.getElementById('sourceSearchModal').style.display = 'none';
+    }
+    
+    async function openExternalUrl(url) {
+      try {
+        await ipcRenderer.invoke('open-external-url', url);
+      } catch (error) {
+        console.error('Failed to open URL:', error);
+      }
+    }
+    
+    async function loadLogLevelsChart() {
+      const dateFrom = document.getElementById('logsDateFromFilter').value;
+      const dateThrough = document.getElementById('logsDateThroughFilter').value;
+      const logLevels = getSelectedValues('logLevelFilter');
+      
+      let whereClause = 'WHERE Logs.IsDeleted = 0';
+      if (dateFrom) {
+        whereClause += ` AND Logs.CreatedDate >= '${dateFrom}'`;
+      }
+      if (dateThrough) {
+        whereClause += ` AND Logs.CreatedDate <= '${dateThrough} 23:59:59'`;
+      }
+      if (logLevels.length > 0) {
+        const logLevelList = logLevels.map(l => `'${l}'`).join(',');
+        whereClause += ` AND Logs.LogLevel IN (${logLevelList})`;
+      }
+      
+      try {
+        const result = await ipcRenderer.invoke('execute-query', 
+          `SELECT sv.Name as LogLevel, COUNT(*) as Count
+           FROM Logs
+           INNER JOIN SystemValues sv ON sv.Id = Logs.LogLevel
+           ${whereClause}
+           GROUP BY sv.Name, sv.Position
+           ORDER BY sv.Position`);
+        
+        if (result.success && result.data) {
+          drawLogLevelsPieChart(result.data);
+        }
+      } catch (error) {
+        console.error('Failed to load log levels chart:', error);
+      }
+    }
+    
+    function clearLogLevelsChart() {
+      const canvas = document.getElementById('logLevelsChart');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    
+    function drawLogLevelsPieChart(data) {
+      const canvas = document.getElementById('logLevelsChart');
+      const ctx = canvas.getContext('2d');
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      if (!data || data.length === 0) {
+        ctx.fillStyle = 'black';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('No data found', canvas.width / 2, canvas.height / 2);
+        return;
+      }
+      
+      const total = data.reduce((sum, item) => sum + item.Count, 0);
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const radius = Math.min(centerX, centerY) - 50;
+      
+      let currentAngle = 0;
+      const colors = ['#dc3545', '#ffc107', '#28a745', '#17a2b8', '#6f42c1', '#fd7e14'];
+      
+      data.forEach((item, index) => {
+        const sliceAngle = (item.Count / total) * 2 * Math.PI;
+        
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.arc(centerX, centerY, radius, currentAngle, currentAngle + sliceAngle);
+        ctx.closePath();
+        ctx.fillStyle = colors[index % colors.length];
+        ctx.fill();
+        
+        const labelAngle = currentAngle + sliceAngle / 2;
+        const labelX = centerX + Math.cos(labelAngle) * (radius * 0.7);
+        const labelY = centerY + Math.sin(labelAngle) * (radius * 0.7);
+        
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(item.LogLevel, labelX, labelY);
+        ctx.fillText(item.Count, labelX, labelY + 16);
+        
+        currentAngle += sliceAngle;
+      });
     }
     
     // Close modal when clicking outside of it
