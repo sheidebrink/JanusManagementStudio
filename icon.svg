@@ -1,0 +1,84 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="#667eea" stroke="#5a6fd8" stroke-width="4"/>
+  
+  <!-- Dividing line in the middle -->
+  <line x1="128" y1="20" x2="128" y2="236" stroke="#5a6fd8" stroke-width="2" opacity="0.3"/>
+  
+  <!-- LEFT SIDE - MALE FACE -->
+  <!-- Male head -->
+  <path d="M128 55 Q95 55 95 90 Q95 125 128 125 L128 55" fill="#fdbcb4"/>
+  
+  <!-- Male hair -->
+  <path d="M95 70 Q95 50 115 45 Q128 40 128 55 L128 70 Q115 65 95 70" fill="#8b4513"/>
+  
+  <!-- Male eyes -->
+  <circle cx="108" cy="85" r="3" fill="#000"/>
+  <circle cx="109" cy="84" r="1" fill="#fff"/>
+  
+  <!-- Male nose -->
+  <ellipse cx="115" cy="95" rx="2" ry="3" fill="#f4a688"/>
+  
+  <!-- Male mouth -->
+  <path d="M105 105 Q115 112 125 105" stroke="#000" stroke-width="2" fill="none" stroke-linecap="round"/>
+  
+  <!-- Male suit jacket (left side) -->
+  <path d="M85 140 L85 220 Q85 230 95 230 L128 230 L128 140 Q125 135 115 135 L111 135 L111 145 Q111 150 106 150 L95 150 Q90 150 85 140" fill="#2c3e50"/>
+  
+  <!-- Male shirt (left side) -->
+  <rect x="111" y="135" width="17" height="95" fill="#fff"/>
+  
+  <!-- Male tie (left side) -->
+  <path d="M120 135 L125 135 L128 180 L125 190 L120 180 Z" fill="#e74c3c"/>
+  
+  <!-- Male suit lapel -->
+  <path d="M111 135 L101 135 Q91 135 85 140 L95 150 L111 145 Z" fill="#34495e"/>
+  
+  <!-- Male arm -->
+  <ellipse cx="70" cy="170" rx="15" ry="40" fill="#2c3e50"/>
+  <circle cx="70" cy="205" r="8" fill="#fdbcb4"/>
+  
+  <!-- RIGHT SIDE - FEMALE FACE -->
+  <!-- Female head -->
+  <path d="M128 55 Q161 55 161 90 Q161 125 128 125 L128 55" fill="#fdbcb4"/>
+  
+  <!-- Female hair (longer, more styled) -->
+  <path d="M161 70 Q161 45 140 40 Q128 35 128 55 L128 75 Q145 60 161 70" fill="#8b4513"/>
+  <path d="M128 75 Q135 80 145 85 Q155 90 161 95" stroke="#8b4513" stroke-width="3" fill="none"/>
+  
+  <!-- Female eyes (with eyelashes) -->
+  <circle cx="148" cy="85" r="3" fill="#000"/>
+  <circle cx="147" cy="84" r="1" fill="#fff"/>
+  <!-- Eyelashes -->
+  <path d="M145 82 L143 80 M148 81 L148 79 M151 82 L153 80" stroke="#000" stroke-width="1"/>
+  
+  <!-- Female nose -->
+  <ellipse cx="141" cy="95" rx="1.5" ry="2.5" fill="#f4a688"/>
+  
+  <!-- Female mouth (with lipstick) -->
+  <path d="M131 105 Q141 112 151 105" stroke="#c0392b" stroke-width="2" fill="none" stroke-linecap="round"/>
+  
+  <!-- Female suit jacket (right side) -->
+  <path d="M171 140 L171 220 Q171 230 161 230 L128 230 L128 140 Q131 135 141 135 L145 135 L145 145 Q145 150 150 150 L161 150 Q166 150 171 140" fill="#2c3e50"/>
+  
+  <!-- Female shirt (right side) -->
+  <rect x="128" y="135" width="17" height="95" fill="#fff"/>
+  
+  <!-- Female tie/scarf (right side) -->
+  <path d="M131 135 L136 135 L133 180 L131 190 L128 180 Z" fill="#9b59b6"/>
+  
+  <!-- Female suit lapel -->
+  <path d="M145 135 L155 135 Q165 135 171 140 L161 150 L145 145 Z" fill="#34495e"/>
+  
+  <!-- Female arm -->
+  <ellipse cx="186" cy="170" rx="15" ry="40" fill="#2c3e50"/>
+  <circle cx="186" cy="205" r="8" fill="#fdbcb4"/>
+  
+  <!-- Briefcase (shared in middle) -->
+  <rect x="118" y="200" width="20" height="12" rx="2" fill="#8b4513"/>
+  <rect x="120" y="202" width="16" height="8" fill="#a0522d"/>
+  <circle cx="128" cy="206" r="1" fill="#000"/>
+  
+  <!-- Small "JANUS" text at bottom -->
+  <text x="128" y="245" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#fff">JANUS</text>
+</svg>

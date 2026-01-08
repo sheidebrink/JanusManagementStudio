@@ -26,7 +26,7 @@ function createWindow() {
     },
     resizable: false,
     title: 'Janus Management Studio',
-    icon: null
+    icon: path.join(__dirname, 'icon.svg')
   });
 
   mainWindow.loadFile('login.html');

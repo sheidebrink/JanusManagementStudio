@@ -2,6 +2,7 @@
 <html>
 <head>
   <title>Janus Management Studio</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <style>
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -305,8 +306,13 @@
   </div>
   
   <div class="header">
-    <h1>Janus Management Studio</h1>
-    <p id="headerConnectionInfo">Connected to database</p>
+    <div style="display: flex; align-items: center; gap: 15px;">
+      <img src="icon.svg" alt="Janus Management Studio" style="width: 48px; height: 48px;">
+      <div>
+        <h1 style="margin: 0;">Janus Management Studio</h1>
+        <p id="headerConnectionInfo" style="margin: 5px 0 0 0;">Connected to database</p>
+      </div>
+    </div>
   </div>
   
   <div id="homePage" class="page active">
