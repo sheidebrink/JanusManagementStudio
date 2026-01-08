@@ -2502,7 +2502,30 @@
           html += `<input type="checkbox" ${checked} onchange="toggleColumn('${tableName}', '${col.column}')" style="margin-right: 10px;">`;
           html += `<span style="font-weight: bold;">${col.column}</span>`;
           html += `<span style="margin-left: 10px; color: #666; font-size: 12px;">(${col.dataType})</span>`;
-          html += `</label></div>`;
+          html += `</label>`;
+          
+          // Add filter inputs if column is selected
+          if (col.selected) {
+            const isNumeric = ['int', 'bigint', 'smallint', 'tinyint', 'decimal', 'numeric', 'float', 'real', 'money', 'smallmoney'].includes(col.dataType.toLowerCase());
+            const isDate = ['date', 'datetime', 'datetime2', 'smalldatetime', 'time', 'datetimeoffset'].includes(col.dataType.toLowerCase());
+            
+            html += `<div style="margin-left: 30px; margin-top: 5px; display: flex; gap: 10px; align-items: center;">`;
+            html += `<span style="font-size: 11px; color: #666;">Filter:</span>`;
+            
+            if (isNumeric || isDate) {
+              const inputType = isDate ? 'date' : 'number';
+              html += `<input type="${inputType}" placeholder="From" style="width: 80px; padding: 2px; font-size: 11px;" onchange="updateColumnFilter('${tableName}', '${col.column}', 'from', this.value)">`;
+              html += `<span style="font-size: 11px;">to</span>`;
+              html += `<input type="${inputType}" placeholder="To" style="width: 80px; padding: 2px; font-size: 11px;" onchange="updateColumnFilter('${tableName}', '${col.column}', 'to', this.value)">`;
+            } else {
+              html += `<input type="text" placeholder="Value..." style="width: 100px; padding: 2px; font-size: 11px;" onchange="updateColumnFilter('${tableName}', '${col.column}', 'value', this.value)">`;
+              html += `<label style="margin-left: 5px; font-size: 11px;"><input type="checkbox" onchange="updateColumnFilter('${tableName}', '${col.column}', 'contains', this.checked)" style="margin-right: 3px;">Contains</label>`;
+            }
+            
+            html += `</div>`;
+          }
+          
+          html += `</div>`;
         });
         
         html += `</div></div>`;
@@ -2522,6 +2545,19 @@
       const col = queryBuilderData.selectedColumns.find(c => c.table === tableName && c.column === columnName);
       if (col) {
         col.selected = !col.selected;
+        if (!col.selected) {
+          // Clear filters when column is deselected
+          delete col.filters;
+        }
+        updateStackDisplay();
+      }
+    }
+    
+    function updateColumnFilter(tableName, columnName, filterType, value) {
+      const col = queryBuilderData.selectedColumns.find(c => c.table === tableName && c.column === columnName);
+      if (col) {
+        if (!col.filters) col.filters = {};
+        col.filters[filterType] = value;
       }
     }
     
@@ -2559,6 +2595,33 @@
       for (let i = 1; i < queryBuilderData.selectedTables.length; i++) {
         const table = queryBuilderData.selectedTables[i];
         query += `\n  CROSS JOIN ${table} ${tableAliases[table]}`;
+      }
+      
+      // Add WHERE clause for filters
+      const whereConditions = [];
+      selectedCols.forEach(col => {
+        if (col.filters) {
+          const alias = tableAliases[col.table];
+          const columnRef = `${alias}.${col.column}`;
+          
+          if (col.filters.from && col.filters.to) {
+            whereConditions.push(`${columnRef} BETWEEN '${col.filters.from}' AND '${col.filters.to}'`);
+          } else if (col.filters.from) {
+            whereConditions.push(`${columnRef} >= '${col.filters.from}'`);
+          } else if (col.filters.to) {
+            whereConditions.push(`${columnRef} <= '${col.filters.to}'`);
+          } else if (col.filters.value) {
+            if (col.filters.contains) {
+              whereConditions.push(`${columnRef} LIKE '%${col.filters.value}%'`);
+            } else {
+              whereConditions.push(`${columnRef} = '${col.filters.value}'`);
+            }
+          }
+        }
+      });
+      
+      if (whereConditions.length > 0) {
+        query += '\nWHERE ' + whereConditions.join('\n  AND ');
       }
       
       document.getElementById('generatedQuery').value = query;
