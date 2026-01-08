@@ -7,3 +7,4 @@ build/
 Thumbs.db
 credentials.dat
 windowstate.json
+.vscode/
