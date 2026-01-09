@@ -1,8 +1,10 @@
 """
-DynamoDB Web Server for Electron App Integration
+Multi-Service Web Server for Electron App Integration
 
-This creates a simple Flask web server that your Electron app can communicate with
-to provide natural language DynamoDB querying capabilities.
+This creates a Flask web server that your Electron app can communicate with
+to provide natural language querying capabilities for AWS services:
+- DynamoDB
+- S3
 """
 
 from flask import Flask, request, jsonify, render_template_string
@@ -11,32 +13,47 @@ import json
 import sys
 import os
 
-# Import your existing DynamoDB agent
+# Import your existing agents
 from dynamodb_agent import create_dynamodb_agent
+from s3_agent import create_s3_agent
 
 app = Flask(__name__)
 CORS(app)  # Allow Electron app to make requests
 
-# Initialize the DynamoDB agent
+# Initialize the agents
+agents = {}
+
 try:
-    agent = create_dynamodb_agent()
+    agents['dynamodb'] = create_dynamodb_agent()
     print("✅ DynamoDB agent initialized successfully")
 except Exception as e:
     print(f"❌ Error initializing DynamoDB agent: {e}")
-    agent = None
+    agents['dynamodb'] = None
+
+try:
+    agents['s3'] = create_s3_agent()
+    print("✅ S3 agent initialized successfully")
+except Exception as e:
+    print(f"❌ Error initializing S3 agent: {e}")
+    agents['s3'] = None
 
 @app.route('/api/query', methods=['POST'])
-def query_dynamodb():
-    """Handle natural language queries about DynamoDB."""
+def query_service():
+    """Handle natural language queries for AWS services."""
     try:
         data = request.get_json()
         query = data.get('query', '')
+        service = data.get('service', 'dynamodb')  # Default to DynamoDB for backward compatibility
         
         if not query:
             return jsonify({'error': 'No query provided'}), 400
         
+        if service not in agents:
+            return jsonify({'error': f'Unknown service: {service}'}), 400
+        
+        agent = agents[service]
         if not agent:
-            return jsonify({'error': 'DynamoDB agent not initialized. Check AWS credentials.'}), 500
+            return jsonify({'error': f'{service.upper()} agent not initialized. Check AWS credentials.'}), 500
         
         # Use the agent to process the query
         response = agent(query)
@@ -46,6 +63,7 @@ def query_dynamodb():
         
         return jsonify({
             'success': True,
+            'service': service,
             'query': query,
             'response': response_text
         })
@@ -56,29 +74,52 @@ def query_dynamodb():
             'error': str(e)
         }), 500
 
+@app.route('/api/query/dynamodb', methods=['POST'])
+def query_dynamodb():
+    """Handle DynamoDB queries (backward compatibility)."""
+    data = request.get_json()
+    data['service'] = 'dynamodb'
+    return query_service()
+
+@app.route('/api/query/s3', methods=['POST'])
+def query_s3():
+    """Handle S3 queries."""
+    data = request.get_json()
+    data['service'] = 's3'
+    return query_service()
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
     return jsonify({
         'status': 'healthy',
-        'agent_ready': agent is not None
+        'services': {
+            'dynamodb': agents['dynamodb'] is not None,
+            's3': agents['s3'] is not None
+        }
     })
 
 @app.route('/api/suggestions', methods=['GET'])
 def get_suggestions():
     """Get example queries users can try."""
-    suggestions = [
-        "What DynamoDB tables do I have?",
-        "Show me the structure of the users table",
-        "Get me 10 items from the products table",
-        "Query the orders table for user_id = 12345",
-        "Search for items containing 'email'",
-        "Analyze the data structure of my logs table",
-        "Show me recent entries from the events table",
-        "Find all items where status is 'active'",
-        "Get table statistics for all my tables",
-        "Show me items created in the last 24 hours"
-    ]
+    suggestions = {
+        'dynamodb': [
+            "What DynamoDB tables do I have?",
+            "Show me the structure of the users table",
+            "Get me 10 items from the products table",
+            "Query the orders table for user_id = 12345",
+            "Search for items containing 'email'",
+            "Analyze the data structure of my logs table"
+        ],
+        's3': [
+            "What S3 buckets do I have?",
+            "Show me the contents of my-data bucket",
+            "Search for .jpg files in my-photos bucket",
+            "Analyze the structure of my-website bucket",
+            "What's the size of objects in my-backup bucket?",
+            "Show me recent files in my-uploads bucket"
+        ]
+    }
     
     return jsonify({'suggestions': suggestions})
 
@@ -212,13 +253,16 @@ def test_interface():
     return TEST_HTML
 
 if __name__ == '__main__':
-    print("🚀 Starting DynamoDB Web Server...")
+    print("🚀 Starting AWS Services Web Server...")
     print("📊 Your Electron app can now communicate with: http://localhost:5000")
     print("🧪 Test interface available at: http://localhost:5000")
-    print("📡 API endpoint: POST http://localhost:5000/api/query")
+    print("📡 API endpoints:")
+    print("  - POST http://localhost:5000/api/query (with service: 'dynamodb' or 's3')")
+    print("  - POST http://localhost:5000/api/query/dynamodb")
+    print("  - POST http://localhost:5000/api/query/s3")
     print("\nExample API usage:")
     print("curl -X POST http://localhost:5000/api/query \\")
     print("  -H 'Content-Type: application/json' \\")
-    print("  -d '{\"query\": \"What tables do I have?\"}'")
+    print("  -d '{\"service\": \"s3\", \"query\": \"What buckets do I have?\"}'")
     
     app.run(debug=True, host='0.0.0.0', port=5000)

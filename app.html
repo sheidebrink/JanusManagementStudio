@@ -307,6 +307,7 @@
       🤖 AI Assistant
       <div id="aiMenu" class="dropdown">
         <div onclick="showDynamoDBChatPage(); closeAllMenus()">💬 DynamoDB Chat</div>
+        <div onclick="showS3ChatPage(); closeAllMenus()">🪣 S3 Chat</div>
       </div>
     </div>
   </div>
@@ -340,6 +341,7 @@
         <li><strong>Database → Data Dictionary</strong> - View database schema and ERD</li>
         <li><strong>Database → Query Builder</strong> - Build queries visually by selecting tables and columns</li>
         <li><strong>AI Assistant → DynamoDB Chat</strong> - Query DynamoDB using natural language</li>
+        <li><strong>AI Assistant → S3 Chat</strong> - Browse and analyze S3 buckets using natural language</li>
       </ul>
     </div>
   </div>
@@ -355,6 +357,20 @@
     
     <div class="results">
       <div id="dynamodb-chat-container" style="height: 600px; border: 1px solid #ddd; border-radius: 5px;"></div>
+    </div>
+  </div>
+
+  <div id="s3ChatPage" class="page">
+    <div class="query-section">
+      <h3>🪣 AI Assistant - S3 Chat</h3>
+      <p>Browse and analyze your S3 buckets using natural language!</p>
+      <div id="s3-chat-status" style="padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+        <strong>Status:</strong> <span id="s3-status">Checking connection...</span>
+      </div>
+    </div>
+    
+    <div class="results">
+      <div id="s3-chat-container" style="height: 600px; border: 1px solid #ddd; border-radius: 5px;"></div>
     </div>
   </div>
 
@@ -4088,7 +4104,7 @@ ${bodyContent}`;
         const response = await fetch('http://localhost:5000/api/health');
         const health = await response.json();
         
-        if (health.agent_ready) {
+        if (health.services && health.services.dynamodb) {
           statusEl.textContent = '✅ Connected and ready';
           statusEl.parentElement.style.background = '#d4edda';
           statusEl.parentElement.style.color = '#155724';
@@ -4155,18 +4171,20 @@ ${bodyContent}`;
         const data = await response.json();
         
         const suggestionsEl = document.getElementById('suggestions');
-        data.suggestions.slice(0, 6).forEach(suggestion => {
-          const span = document.createElement('span');
-          span.style.cssText = 'font-size: 11px; padding: 4px 8px; background: #e9ecef; border-radius: 12px; cursor: pointer; transition: background-color 0.2s;';
-          span.textContent = suggestion;
-          span.onclick = () => {
-            document.getElementById('chat-input').value = suggestion;
-            sendDynamoDBQuery();
-          };
-          span.onmouseover = () => span.style.background = '#dee2e6';
-          span.onmouseout = () => span.style.background = '#e9ecef';
-          suggestionsEl.appendChild(span);
-        });
+        if (data.suggestions && data.suggestions.dynamodb) {
+          data.suggestions.dynamodb.slice(0, 6).forEach(suggestion => {
+            const span = document.createElement('span');
+            span.style.cssText = 'font-size: 11px; padding: 4px 8px; background: #e9ecef; border-radius: 12px; cursor: pointer; transition: background-color 0.2s;';
+            span.textContent = suggestion;
+            span.onclick = () => {
+              document.getElementById('chat-input').value = suggestion;
+              sendDynamoDBQuery();
+            };
+            span.onmouseover = () => span.style.background = '#dee2e6';
+            span.onmouseout = () => span.style.background = '#e9ecef';
+            suggestionsEl.appendChild(span);
+          });
+        }
       } catch (error) {
         console.error('Failed to load suggestions:', error);
       }
@@ -4212,7 +4230,7 @@ ${bodyContent}`;
       addChatMessage('🤔 Analyzing your request...');
       
       try {
-        const response = await fetch('http://localhost:5000/api/query', {
+        const response = await fetch('http://localhost:5000/api/query/dynamodb', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -4301,6 +4319,249 @@ ${bodyContent}`;
           </div>
           
           <button onclick="initializeDynamoDBChat()" style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">
+            Check Connection
+          </button>
+        </div>
+      `;
+    }
+
+    // S3 Chat Integration
+    let s3Agent = null;
+
+    function showS3ChatPage() {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('s3ChatPage').classList.add('active');
+      closeAllMenus();
+      
+      // Initialize the chat interface if not already done
+      if (!s3Agent) {
+        initializeS3Chat();
+      }
+    }
+
+    async function initializeS3Chat() {
+      try {
+        // Check if the server is running
+        const statusEl = document.getElementById('s3-status');
+        statusEl.textContent = 'Connecting to S3 agent...';
+        
+        const response = await fetch('http://localhost:5000/api/health');
+        const health = await response.json();
+        
+        if (health.services && health.services.s3) {
+          statusEl.textContent = '✅ Connected and ready';
+          statusEl.parentElement.style.background = '#d4edda';
+          statusEl.parentElement.style.color = '#155724';
+          
+          // Load the chat interface
+          loadS3ChatInterface();
+        } else {
+          statusEl.textContent = '⚠️ S3 agent not ready - check AWS credentials';
+          statusEl.parentElement.style.background = '#fff3cd';
+          statusEl.parentElement.style.color = '#856404';
+          
+          showS3SetupInstructions();
+        }
+      } catch (error) {
+        const statusEl = document.getElementById('s3-status');
+        statusEl.textContent = '❌ Server not running';
+        statusEl.parentElement.style.background = '#f8d7da';
+        statusEl.parentElement.style.color = '#721c24';
+        
+        showS3ServerInstructions();
+      }
+    }
+
+    function loadS3ChatInterface() {
+      const container = document.getElementById('s3-chat-container');
+      
+      container.innerHTML = `
+        <div style="display: flex; flex-direction: column; height: 100%; font-family: inherit;">
+          <div style="padding: 15px; background: #f8f9fa; border-bottom: 1px solid #dee2e6;">
+            <h4 style="margin: 0 0 10px 0;">🪣 Ask about your S3 buckets and objects</h4>
+            <div id="s3-suggestions" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+          </div>
+          
+          <div id="s3-chat-messages" style="flex: 1; overflow-y: auto; padding: 15px; background: white;"></div>
+          
+          <div style="padding: 15px; background: #f8f9fa; border-top: 1px solid #dee2e6; display: flex; gap: 10px;">
+            <input type="text" id="s3-chat-input" placeholder="Ask about your S3 buckets and objects..." 
+                   style="flex: 1; padding: 10px; border: 1px solid #ced4da; border-radius: 20px; outline: none;">
+            <button id="s3-send-button" onclick="sendS3Query()" 
+                    style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 20px; cursor: pointer;">
+              Send
+            </button>
+          </div>
+        </div>
+      `;
+      
+      // Load suggestions
+      loadS3ChatSuggestions();
+      
+      // Add welcome message
+      addS3ChatMessage('👋 Hi! I can help you browse and analyze your S3 buckets. Try asking me something like "What buckets do I have?" or click one of the suggestions above.', false);
+      
+      // Set up enter key handler
+      document.getElementById('s3-chat-input').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          sendS3Query();
+        }
+      });
+    }
+
+    async function loadS3ChatSuggestions() {
+      try {
+        const response = await fetch('http://localhost:5000/api/suggestions');
+        const data = await response.json();
+        
+        const suggestionsEl = document.getElementById('s3-suggestions');
+        if (data.suggestions && data.suggestions.s3) {
+          data.suggestions.s3.slice(0, 6).forEach(suggestion => {
+            const span = document.createElement('span');
+            span.style.cssText = 'font-size: 11px; padding: 4px 8px; background: #e9ecef; border-radius: 12px; cursor: pointer; transition: background-color 0.2s;';
+            span.textContent = suggestion;
+            span.onclick = () => {
+              document.getElementById('s3-chat-input').value = suggestion;
+              sendS3Query();
+            };
+            span.onmouseover = () => span.style.background = '#dee2e6';
+            span.onmouseout = () => span.style.background = '#e9ecef';
+            suggestionsEl.appendChild(span);
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load S3 suggestions:', error);
+      }
+    }
+
+    function addS3ChatMessage(content, isUser = false) {
+      const messagesEl = document.getElementById('s3-chat-messages');
+      const messageDiv = document.createElement('div');
+      messageDiv.style.cssText = `margin-bottom: 15px; max-width: 80%; ${isUser ? 'margin-left: auto; text-align: right;' : ''}`;
+      
+      const contentDiv = document.createElement('div');
+      contentDiv.style.cssText = `
+        padding: 10px 15px; 
+        border-radius: 18px; 
+        font-size: 14px; 
+        line-height: 1.4;
+        ${isUser ? 
+          'background: #667eea; color: white;' : 
+          'background: #f8f9fa; color: #495057; white-space: pre-wrap; font-family: Monaco, Menlo, monospace; font-size: 12px;'
+        }
+      `;
+      contentDiv.textContent = content;
+      
+      messageDiv.appendChild(contentDiv);
+      messagesEl.appendChild(messageDiv);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    async function sendS3Query() {
+      const input = document.getElementById('s3-chat-input');
+      const query = input.value.trim();
+      
+      if (!query) return;
+      
+      addS3ChatMessage(query, true);
+      input.value = '';
+      
+      const sendButton = document.getElementById('s3-send-button');
+      sendButton.disabled = true;
+      sendButton.textContent = 'Thinking...';
+      
+      // Show thinking message
+      addS3ChatMessage('🤔 Analyzing your request...');
+      
+      try {
+        const response = await fetch('http://localhost:5000/api/query/s3', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query: query })
+        });
+        
+        const data = await response.json();
+        
+        // Remove thinking message
+        const messagesEl = document.getElementById('s3-chat-messages');
+        messagesEl.removeChild(messagesEl.lastChild);
+        
+        if (data.success) {
+          addS3ChatMessage(data.response);
+        } else {
+          addS3ChatMessage(`❌ Error: ${data.error}`);
+        }
+      } catch (error) {
+        // Remove thinking message
+        const messagesEl = document.getElementById('s3-chat-messages');
+        messagesEl.removeChild(messagesEl.lastChild);
+        
+        addS3ChatMessage(`❌ Network error: ${error.message}`);
+      } finally {
+        sendButton.disabled = false;
+        sendButton.textContent = 'Send';
+        input.focus();
+      }
+    }
+
+    function showS3SetupInstructions() {
+      const container = document.getElementById('s3-chat-container');
+      container.innerHTML = `
+        <div style="padding: 30px; text-align: center;">
+          <h3>🔧 Setup Required</h3>
+          <p>The S3 agent server is running, but AWS credentials need to be configured.</p>
+          
+          <div style="background: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0; text-align: left;">
+            <h4>Setup Steps:</h4>
+            <ol>
+              <li><strong>Configure AWS Credentials:</strong>
+                <ul>
+                  <li>Run: <code>aws configure</code></li>
+                  <li>Or set environment variables: <code>AWS_ACCESS_KEY_ID</code> and <code>AWS_SECRET_ACCESS_KEY</code></li>
+                </ul>
+              </li>
+              <li><strong>Ensure S3 Permissions:</strong>
+                <ul>
+                  <li>Your AWS user/role needs S3 read permissions</li>
+                  <li>At minimum: <code>s3:ListBucket</code>, <code>s3:GetObject</code>, <code>s3:GetBucketLocation</code></li>
+                </ul>
+              </li>
+              <li><strong>Refresh this page</strong> after configuring credentials</li>
+            </ol>
+          </div>
+          
+          <button onclick="initializeS3Chat()" style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">
+            Retry Connection
+          </button>
+        </div>
+      `;
+    }
+
+    function showS3ServerInstructions() {
+      const container = document.getElementById('s3-chat-container');
+      container.innerHTML = `
+        <div style="padding: 30px; text-align: center;">
+          <h3>🚀 Start AWS Services Server</h3>
+          <p>The AWS services server needs to be started first.</p>
+          
+          <div style="background: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0; text-align: left;">
+            <h4>Start the server:</h4>
+            <ol>
+              <li>Open a command prompt/terminal</li>
+              <li>Navigate to your project directory</li>
+              <li>Run: <code>python dynamodb_web_server.py</code></li>
+              <li>Wait for "AWS Services Web Server..." message</li>
+              <li>Refresh this page</li>
+            </ol>
+            
+            <div style="background: #e3f2fd; padding: 10px; border-radius: 3px; margin-top: 15px;">
+              <strong>💡 Tip:</strong> The server will run at <code>http://localhost:5000</code>
+            </div>
+          </div>
+          
+          <button onclick="initializeS3Chat()" style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer;">
             Check Connection
           </button>
         </div>
